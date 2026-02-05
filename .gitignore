@@ -28,3 +28,5 @@ public/custom_icon/
 public/DBC_335_wotlk/
 public/INT_335_wotlk/
 base-icons-manifest.json
+web/starter-config.json
+web/starter-settings.json

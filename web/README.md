@@ -23,15 +23,33 @@ A modern web-based editor for managing World of Warcraft 3.3.5 (WotLK) spell ico
 ## Quick Start
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/wow-spell-icon-editor.git
-cd wow-spell-icon-editor/SDBEditor
+# From your AzerothCore repo
+cd /root/azerothcore-wotlk/modules/mod-sdbeditor/web
 
 # Install dependencies
 npm install
 
 # Generate base icons manifest
 node generate-icon-manifest.js
+```
+
+## One-Command Install (Linux)
+
+```bash
+cd /root/azerothcore-wotlk/modules/mod-sdbeditor
+sudo bash install.sh
+```
+
+This installs Node.js (LTS), runs `npm install`, and starts:
+
+- Starter service (port 5000)
+- File service (port 3001)
+- Web UI (port 5173)
+
+Open the setup page at:
+
+```
+http://<server-ip>:5000
 ```
 
 ### Run Development Servers
@@ -45,13 +63,19 @@ npm run dev
 **Terminal 2 - Backend**
 ```bash
 npm run server
-# Runs on http://localhost:3001
+# File service runs on http://localhost:3001
+```
+
+**Terminal 3 - Starter Service**
+```bash
+npm run starter
+# Server control API on http://localhost:5000
 ```
 
 ## Folder Structure
 
 ```
-SDBEditor/
+modules/mod-sdbeditor/web/
 ├── public/
 │   ├── DBC_335_wotlk/          # Base WotLK DBC files (read-only reference)
 │   ├── INT_335_wotlk/          # Base WotLK interface/icons (read-only reference)
@@ -107,6 +131,47 @@ SDBEditor/
 | `/api/check-files` | GET | Check if files exist in custom folders |
 | `/api/upload-icon` | POST | Store uploaded BLP icon data |
 | `/api/export-dbc` | POST | Export modified DBC file |
+
+## Starter Service (Server Control)
+
+The starter service runs separately on port 5000 and uses the auth database
+for admin login. It stores local settings in `web/starter-config.json`.
+
+Initial config (POST):
+
+```json
+{
+  "db": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "webmin",
+    "password": "YOUR_PASSWORD",
+    "database": "acore_auth"
+  },
+  "paths": {
+    "acoreRoot": "/root/azerothcore-wotlk",
+    "authBin": "/root/azerothcore-wotlk/env/dist/bin/authserver",
+    "worldBin": "/root/azerothcore-wotlk/env/dist/bin/worldserver",
+    "armoryBin": "",
+    "logsDir": "/tmp"
+  },
+  "security": {
+    "adminMinLevel": 3
+  }
+}
+```
+
+Endpoints:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/starter/health` | GET | Check if config exists |
+| `/api/starter/config` | POST | Save config to `starter-config.json` |
+| `/api/starter/login` | POST | Login via auth DB account + GM level |
+| `/api/starter/servers/status` | GET | Server status (auth/world/armory) |
+| `/api/starter/servers/start` | POST | Start server (auth/world/armory) |
+| `/api/starter/servers/stop` | POST | Stop server (auth/world/armory) |
+| `/api/starter/servers/restart` | POST | Restart server (auth/world/armory) |
 
 ## Icon Comparison
 

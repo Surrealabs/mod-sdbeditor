@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "vite",
     "server": "node server.js",
+    "starter": "node starter-server.js",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "express": "^4.22.1",
+    "express-fileupload": "^1.5.0",
+    "mysql2": "^3.16.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

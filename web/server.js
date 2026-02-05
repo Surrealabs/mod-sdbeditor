@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fileUpload from 'express-fileupload';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +13,7 @@ const PORT = 3001;
 // Middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb' }));
+app.use(fileUpload());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Enable CORS for Vite dev server
@@ -208,6 +210,74 @@ app.post('/api/upload-icon', (req, res) => {
     });
   } catch (error) {
     console.error('Upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload header image
+app.post('/api/upload-header-image', (req, res) => {
+  try {
+    if (!req.files || !req.files.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const uploadedFile = req.files.file;
+    const headerPath = path.join(PUBLIC_DIR, 'header-image.png');
+
+    // Write file to public directory
+    uploadedFile.mv(headerPath, (err) => {
+      if (err) {
+        console.error('Header upload error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      console.log(`✓ Header image uploaded (${uploadedFile.size} bytes)`);
+      res.json({ success: true, message: 'Header image uploaded' });
+    });
+  } catch (error) {
+    console.error('Header upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload background image
+app.post('/api/upload-background-image', (req, res) => {
+  try {
+    if (!req.files || !req.files.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const uploadedFile = req.files.file;
+    const backgroundPath = path.join(PUBLIC_DIR, 'background-image.png');
+
+    uploadedFile.mv(backgroundPath, (err) => {
+      if (err) {
+        console.error('Background upload error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      console.log(`✓ Background image uploaded (${uploadedFile.size} bytes)`);
+      res.json({ success: true, message: 'Background image uploaded' });
+    });
+  } catch (error) {
+    console.error('Background upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clear background image
+app.post('/api/clear-background-image', (req, res) => {
+  try {
+    const backgroundPath = path.join(PUBLIC_DIR, 'background-image.png');
+    
+    if (fs.existsSync(backgroundPath)) {
+      fs.unlinkSync(backgroundPath);
+      console.log(`✓ Background image cleared`);
+    }
+    
+    res.json({ success: true, message: 'Background image cleared' });
+  } catch (error) {
+    console.error('Background clear error:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -1,5 +1,11 @@
 # WoW 3.3.5 Icon Editor - Setup Guide
 
+Working directory for this module:
+
+```bash
+cd /root/azerothcore-wotlk/modules/mod-sdbeditor/web
+```
+
 ## Directory Structure
 
 The application uses a dual-folder system to protect original game files while allowing custom modifications:
