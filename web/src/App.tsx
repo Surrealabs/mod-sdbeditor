@@ -106,10 +106,18 @@ function App() {
         // Background image doesn't exist yet
       });
     
-    // Load page icon
-    fetch(`${fileBase}/page-icon.png`)
+    // Load page icon (try .ico first, then .png)
+    fetch(`${fileBase}/page-icon.ico`)
       .then((res) => {
         if (res.ok) {
+          setPageIcon(`${fileBase}/page-icon.ico?t=${Date.now()}`);
+        } else {
+          // Try PNG format
+          return fetch(`${fileBase}/page-icon.png`);
+        }
+      })
+      .then((res) => {
+        if (res && res.ok) {
           setPageIcon(`${fileBase}/page-icon.png?t=${Date.now()}`);
         }
       })
@@ -380,8 +388,9 @@ function App() {
 
       const data = await response.json();
 
-      if (response.ok) {
-        setPageIcon(`${fileBase}/page-icon.png?t=${Date.now()}`);
+      if (response.ok && data.filename) {
+        // Use the actual filename returned by the server
+        setPageIcon(`${fileBase}/${data.filename}?t=${Date.now()}`);
       } else {
         setPageIconError(data.error || 'Upload failed');
       }
@@ -954,7 +963,7 @@ function App() {
                     <input
                       id="page-icon-file-input"
                       type="file"
-                      accept="image/*"
+                      accept="image/*,.ico"
                       onChange={(e) => {
                         if (e.target.files?.[0]) {
                           onPageIconUpload(e.target.files[0]);

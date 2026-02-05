@@ -286,41 +286,67 @@ app.post('/api/clear-background-image', (req, res) => {
 app.post('/api/upload-page-icon', (req, res) => {
   try {
     if (!req.files || !req.files.file) {
+      console.error('No file uploaded');
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
     const uploadedFile = req.files.file;
-    const iconPath = path.join(PUBLIC_DIR, 'page-icon.png');
+    const fileName = uploadedFile.name.toLowerCase();
+    
+    // Support both .ico and .png formats
+    let savePath;
+    if (fileName.endsWith('.ico')) {
+      savePath = path.join(PUBLIC_DIR, 'page-icon.ico');
+    } else {
+      savePath = path.join(PUBLIC_DIR, 'page-icon.png');
+    }
 
-    uploadedFile.mv(iconPath, (err) => {
+    console.log(`Uploading icon: ${fileName} to ${savePath}`);
+
+    uploadedFile.mv(savePath, (err) => {
       if (err) {
-        console.error('Page icon upload error:', err);
-        return res.status(500).json({ error: err.message });
+        console.error('Page icon move error:', err);
+        return res.status(500).json({ error: 'Failed to save icon: ' + err.message });
       }
 
-      console.log(`✓ Page icon uploaded (${uploadedFile.size} bytes)`);
-      res.json({ success: true, message: 'Page icon uploaded' });
+      console.log(`✓ Page icon uploaded (${uploadedFile.size} bytes) as ${path.basename(savePath)}`);
+      res.json({ success: true, message: 'Page icon uploaded', filename: path.basename(savePath) });
     });
   } catch (error) {
     console.error('Page icon upload error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Upload error: ' + error.message });
   }
 });
 
 // Clear page icon
 app.post('/api/clear-page-icon', (req, res) => {
   try {
-    const iconPath = path.join(PUBLIC_DIR, 'page-icon.png');
+    // Try both .png and .ico formats
+    const icoPath = path.join(PUBLIC_DIR, 'page-icon.ico');
+    const pngPath = path.join(PUBLIC_DIR, 'page-icon.png');
     
-    if (fs.existsSync(iconPath)) {
-      fs.unlinkSync(iconPath);
-      console.log(`✓ Page icon cleared`);
+    let cleared = false;
+    
+    if (fs.existsSync(icoPath)) {
+      fs.unlinkSync(icoPath);
+      console.log(`✓ Page icon cleared (.ico)`);
+      cleared = true;
+    }
+    
+    if (fs.existsSync(pngPath)) {
+      fs.unlinkSync(pngPath);
+      console.log(`✓ Page icon cleared (.png)`);
+      cleared = true;
+    }
+    
+    if (!cleared) {
+      console.log('No page icon file found to clear');
     }
     
     res.json({ success: true, message: 'Page icon cleared' });
   } catch (error) {
     console.error('Page icon clear error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Clear error: ' + error.message });
   }
 });
 
