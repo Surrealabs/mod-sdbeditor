@@ -28,6 +28,8 @@ function App() {
   const [editingBackgroundColor, setEditingBackgroundColor] = useState<string>('#ffffff');
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
   const [backgroundUploadBusy, setBackgroundUploadBusy] = useState(false);
+  const [pageIcon, setPageIcon] = useState<string | null>(null);
+  const [pageIconUploadBusy, setPageIconUploadBusy] = useState(false);
   const [textColor, setTextColor] = useState<string>('#000000');
   const [editingTextColor, setEditingTextColor] = useState<string>('#000000');
   const [contentBoxColor, setContentBoxColor] = useState<string>('#f9f9f9');
@@ -87,6 +89,17 @@ function App() {
       })
       .catch(() => {
         // Background image doesn't exist yet
+      });
+    
+    // Load page icon
+    fetch(`${fileBase}/page-icon.png`)
+      .then((res) => {
+        if (res.ok) {
+          setPageIcon(`${fileBase}/page-icon.png?t=${Date.now()}`);
+        }
+      })
+      .catch(() => {
+        // Page icon doesn't exist yet
       });
     
     // Load background color
@@ -333,6 +346,42 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to clear background:', err);
+    }
+  };
+
+  const onPageIconUpload = async (file: File) => {
+    if (gmLevel <= 0) return;
+
+    try {
+      setPageIconUploadBusy(true);
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${fileBase}/api/upload-page-icon`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        setPageIcon(`${fileBase}/page-icon.png?t=${Date.now()}`);
+      }
+    } catch (err) {
+      console.error('Page icon upload error:', err);
+    } finally {
+      setPageIconUploadBusy(false);
+    }
+  };
+
+  const onClearPageIcon = async () => {
+    try {
+      const response = await fetch(`${fileBase}/api/clear-page-icon`, {
+        method: 'POST',
+      });
+      if (response.ok) {
+        setPageIcon(null);
+      }
+    } catch (err) {
+      console.error('Failed to clear page icon:', err);
     }
   };
 
@@ -760,63 +809,129 @@ function App() {
                   </div>
                 </div>
 
-                {/* Right Column: Background Image */}
-                <div style={{ padding: 16, background: contentBoxColor, borderRadius: 8 }}>
-                  <h4 style={{ marginTop: 0 }}>Background Image</h4>
-                  {backgroundImage ? (
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ marginBottom: 8, padding: 8, background: '#e8f5e9', borderRadius: 4, fontSize: 12 }}>
-                        ✓ Background image is set
+                {/* Right Column: Background Image and Page Icon */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  {/* Background Image Upload */}
+                  <div style={{ padding: 16, background: contentBoxColor, borderRadius: 8 }}>
+                    <h4 style={{ marginTop: 0 }}>Background Image</h4>
+                    {backgroundImage ? (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ marginBottom: 8, padding: 8, background: '#e8f5e9', borderRadius: 4, fontSize: 12 }}>
+                          ✓ Image set
+                        </div>
+                        <button
+                          onClick={onClearBackground}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 4,
+                            border: 'none',
+                            background: '#dc3545',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            marginBottom: 8,
+                            width: '100%',
+                          }}
+                        >
+                          Clear
+                        </button>
                       </div>
-                      <button
-                        onClick={onClearBackground}
-                        style={{
-                          padding: '6px 12px',
-                          borderRadius: 4,
-                          border: 'none',
-                          background: '#dc3545',
-                          color: '#fff',
-                          cursor: 'pointer',
-                          fontSize: 12,
-                          marginBottom: 8,
-                        }}
-                      >
-                        Clear Background
-                      </button>
-                    </div>
-                  ) : (
-                    <p style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>
-                      Upload an image to override the background color.
-                    </p>
-                  )}
-                  <label
-                    htmlFor="background-file-input"
-                    style={{
-                      display: 'inline-block',
-                      padding: '6px 12px',
-                      background: '#007bff',
-                      color: '#fff',
-                      borderRadius: 4,
-                      cursor: backgroundUploadBusy ? 'not-allowed' : 'pointer',
-                      fontSize: 12,
-                      opacity: backgroundUploadBusy ? 0.6 : 1,
-                    }}
-                  >
-                    {backgroundUploadBusy ? 'Uploading...' : 'Upload Image'}
-                  </label>
-                  <input
-                    id="background-file-input"
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) {
-                        onBackgroundImageUpload(e.target.files[0]);
-                      }
-                      e.target.value = '';
-                    }}
-                    style={{ display: 'none' }}
-                    disabled={backgroundUploadBusy}
-                  />
+                    ) : (
+                      <p style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>
+                        Upload image to override background color.
+                      </p>
+                    )}
+                    <label
+                      htmlFor="background-file-input"
+                      style={{
+                        display: 'block',
+                        padding: '6px 12px',
+                        background: '#007bff',
+                        color: '#fff',
+                        borderRadius: 4,
+                        cursor: backgroundUploadBusy ? 'not-allowed' : 'pointer',
+                        fontSize: 12,
+                        opacity: backgroundUploadBusy ? 0.6 : 1,
+                        textAlign: 'center',
+                      }}
+                    >
+                      {backgroundUploadBusy ? 'Uploading...' : 'Upload Image'}
+                    </label>
+                    <input
+                      id="background-file-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) {
+                          onBackgroundImageUpload(e.target.files[0]);
+                        }
+                        e.target.value = '';
+                      }}
+                      style={{ display: 'none' }}
+                      disabled={backgroundUploadBusy}
+                    />
+                  </div>
+
+                  {/* Page Icon Upload */}
+                  <div style={{ padding: 16, background: contentBoxColor, borderRadius: 8 }}>
+                    <h4 style={{ marginTop: 0 }}>Page Icon</h4>
+                    {pageIcon ? (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ marginBottom: 8, padding: 8, background: '#e8f5e9', borderRadius: 4, fontSize: 12 }}>
+                          ✓ Icon set
+                        </div>
+                        <button
+                          onClick={onClearPageIcon}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 4,
+                            border: 'none',
+                            background: '#dc3545',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            marginBottom: 8,
+                            width: '100%',
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>
+                        Upload a favicon-sized image.
+                      </p>
+                    )}
+                    <label
+                      htmlFor="page-icon-file-input"
+                      style={{
+                        display: 'block',
+                        padding: '6px 12px',
+                        background: '#007bff',
+                        color: '#fff',
+                        borderRadius: 4,
+                        cursor: pageIconUploadBusy ? 'not-allowed' : 'pointer',
+                        fontSize: 12,
+                        opacity: pageIconUploadBusy ? 0.6 : 1,
+                        textAlign: 'center',
+                      }}
+                    >
+                      {pageIconUploadBusy ? 'Uploading...' : 'Upload Icon'}
+                    </label>
+                    <input
+                      id="page-icon-file-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) {
+                          onPageIconUpload(e.target.files[0]);
+                        }
+                        e.target.value = '';
+                      }}
+                      style={{ display: 'none' }}
+                      disabled={pageIconUploadBusy}
+                    />
+                  </div>
                 </div>
               </div>
 

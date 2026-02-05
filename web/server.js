@@ -282,6 +282,48 @@ app.post('/api/clear-background-image', (req, res) => {
   }
 });
 
+// Upload page icon
+app.post('/api/upload-page-icon', (req, res) => {
+  try {
+    if (!req.files || !req.files.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const uploadedFile = req.files.file;
+    const iconPath = path.join(PUBLIC_DIR, 'page-icon.png');
+
+    uploadedFile.mv(iconPath, (err) => {
+      if (err) {
+        console.error('Page icon upload error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      console.log(`✓ Page icon uploaded (${uploadedFile.size} bytes)`);
+      res.json({ success: true, message: 'Page icon uploaded' });
+    });
+  } catch (error) {
+    console.error('Page icon upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clear page icon
+app.post('/api/clear-page-icon', (req, res) => {
+  try {
+    const iconPath = path.join(PUBLIC_DIR, 'page-icon.png');
+    
+    if (fs.existsSync(iconPath)) {
+      fs.unlinkSync(iconPath);
+      console.log(`✓ Page icon cleared`);
+    }
+    
+    res.json({ success: true, message: 'Page icon cleared' });
+  } catch (error) {
+    console.error('Page icon clear error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`\n✓ Backend API running on http://localhost:${PORT}`);
   console.log('Handles: DBC/icon copying, file checking, icon uploads\n');
