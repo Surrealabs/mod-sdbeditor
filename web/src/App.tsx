@@ -810,7 +810,7 @@ function App() {
                 </div>
 
                 {/* Right Column: Background Image and Page Icon */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
                   {/* Background Image Upload */}
                   <div style={{ padding: 16, background: contentBoxColor, borderRadius: 8 }}>
                     <h4 style={{ marginTop: 0 }}>Background Image</h4>
