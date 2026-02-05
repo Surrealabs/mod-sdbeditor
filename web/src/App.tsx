@@ -30,6 +30,7 @@ function App() {
   const [backgroundUploadBusy, setBackgroundUploadBusy] = useState(false);
   const [pageIcon, setPageIcon] = useState<string | null>(null);
   const [pageIconUploadBusy, setPageIconUploadBusy] = useState(false);
+  const [pageIconError, setPageIconError] = useState<string | null>(null);
   const [textColor, setTextColor] = useState<string>('#000000');
   const [editingTextColor, setEditingTextColor] = useState<string>('#000000');
   const [contentBoxColor, setContentBoxColor] = useState<string>('#f9f9f9');
@@ -39,6 +40,20 @@ function App() {
   useEffect(() => {
     document.title = pageTitle;
   }, [pageTitle]);
+
+  // Update favicon when pageIcon changes
+  useEffect(() => {
+    if (pageIcon) {
+      let favicon = document.querySelector("link[rel='icon']") as HTMLLinkElement;
+      if (!favicon) {
+        favicon = document.createElement('link');
+        favicon.rel = 'icon';
+        document.head.appendChild(favicon);
+      }
+      favicon.href = pageIcon;
+      favicon.type = 'image/png';
+    }
+  }, [pageIcon]);
 
   const starterBase = useMemo(() => {
     return `http://${window.location.hostname}:5000`;
@@ -354,6 +369,7 @@ function App() {
 
     try {
       setPageIconUploadBusy(true);
+      setPageIconError(null);
       const formData = new FormData();
       formData.append('file', file);
 
@@ -362,10 +378,16 @@ function App() {
         body: formData,
       });
 
+      const data = await response.json();
+
       if (response.ok) {
         setPageIcon(`${fileBase}/page-icon.png?t=${Date.now()}`);
+      } else {
+        setPageIconError(data.error || 'Upload failed');
       }
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Upload failed';
+      setPageIconError(errorMsg);
       console.error('Page icon upload error:', err);
     } finally {
       setPageIconUploadBusy(false);
@@ -374,13 +396,19 @@ function App() {
 
   const onClearPageIcon = async () => {
     try {
+      setPageIconError(null);
       const response = await fetch(`${fileBase}/api/clear-page-icon`, {
         method: 'POST',
       });
       if (response.ok) {
         setPageIcon(null);
+      } else {
+        const data = await response.json();
+        setPageIconError(data.error || 'Clear failed');
       }
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Clear failed';
+      setPageIconError(errorMsg);
       console.error('Failed to clear page icon:', err);
     }
   };
@@ -875,6 +903,11 @@ function App() {
                   {/* Page Icon Upload */}
                   <div style={{ padding: 16, background: contentBoxColor, borderRadius: 8 }}>
                     <h4 style={{ marginTop: 0 }}>Page Icon</h4>
+                    {pageIconError && (
+                      <div style={{ padding: 8, background: '#fee', color: '#b91c1c', borderRadius: 4, marginBottom: 12, fontSize: 12 }}>
+                        {pageIconError}
+                      </div>
+                    )}
                     {pageIcon ? (
                       <div style={{ marginBottom: 12 }}>
                         <div style={{ marginBottom: 8, padding: 8, background: '#e8f5e9', borderRadius: 4, fontSize: 12 }}>
@@ -899,7 +932,7 @@ function App() {
                       </div>
                     ) : (
                       <p style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>
-                        Upload a favicon-sized image.
+                        Recommended: 192x192 or 256x256 PNG/ICO formats work best.
                       </p>
                     )}
                     <label
