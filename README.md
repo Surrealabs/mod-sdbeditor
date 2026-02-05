@@ -1,0 +1,217 @@
+# WoW 3.3.5 Spell Icon Editor (SDBEditor)
+
+A modern web-based editor for managing World of Warcraft 3.3.5 (WotLK) spell icons. Create custom spell icons, manage icon databases, and generate expanded DBC files for private servers.
+
+## Features
+
+- 🎨 **Browse Custom Icons** - View all custom spell icons from your working folders
+- ✨ **Create Custom Icons** - Import images and convert them to BLP format
+- 📊 **DBC Management** - Load, parse, and expand SpellIcon.dbc files
+- 🔍 **Icon Detection** - Automatically identify new custom icons vs base WotLK icons
+- 💾 **Custom DBC Export** - Generate new DBC files with custom icon IDs
+- 📦 **File Organization** - Separate base WotLK files (read-only) from custom working folders
+- 🖥️ **Modern UI** - React 18 + TypeScript with real-time image preview
+- ⚡ **Fast Processing** - Vite dev server with HMR for instant updates
+
+## Technology Stack
+
+- **Frontend**: React 18 + TypeScript + Vite
+- **Backend**: Node.js + Express
+- **Binary Formats**: DBC (database), BLP (WoW image format)
+- **Image Processing**: Canvas API with BLP encoder/decoder
+
+## Quick Start
+
+```bash
+# Clone repository
+git clone https://github.com/yourusername/wow-spell-icon-editor.git
+cd wow-spell-icon-editor/SDBEditor
+
+# Install dependencies
+npm install
+
+# Generate base icons manifest
+node generate-icon-manifest.js
+```
+
+### Run Development Servers
+
+**Terminal 1 - Frontend**
+```bash
+npm run dev
+# Opens http://localhost:5173
+```
+
+**Terminal 2 - Backend**
+```bash
+npm run server
+# Runs on http://localhost:3001
+```
+
+## Folder Structure
+
+```
+SDBEditor/
+├── public/
+│   ├── DBC_335_wotlk/          # Base WotLK DBC files (read-only reference)
+│   ├── INT_335_wotlk/          # Base WotLK interface/icons (read-only reference)
+│   │   └── Icons/              # 6,308 base BLP icon files
+│   ├── custom_dbc/             # Your custom DBC files (working directory)
+│   ├── custom_icon/            # Your custom icon files (working directory)
+│   └── base-icons-manifest.json # Auto-generated manifest of base icons
+├── src/
+│   ├── components/
+│   │   ├── SpellIconEditor.tsx  # Main editor component (~1000 lines)
+│   │   └── SettingsPanel.tsx    # Initial setup & file management
+│   ├── lib/
+│   │   ├── dbc-parser.ts        # Binary DBC format parser
+│   │   ├── blp-converter-esm.js # BLP image codec
+│   │   └── config.ts            # Configuration & path management
+│   └── App.tsx
+├── server.js                     # Express backend for file operations
+├── generate-icon-manifest.js     # Utility to scan base icons
+├── package.json
+└── vite.config.ts
+```
+
+## Workflow
+
+### 1. Initial Setup (Auto-detects missing files)
+- Click **"Copy DBC Files"** → Copies base SpellIcon.dbc to custom_dbc/
+- Click **"Copy Icon Files"** → Copies all base BLP icons to custom_icon/
+- Creates your working copy of WotLK base files
+
+### 2. Browse Icons (Custom)
+- Shows all icons in your custom_dbc/ and custom_icon/ folders
+- Import a SpellIcon.dbc file to see icon ID mappings
+- Lists unmapped icons (in folder but not in DBC)
+- **Highlights NEW icons** (not in base WotLK)
+
+### 3. Add New Icons
+- Drag & drop or select image files (JPEG, PNG, BMP, GIF)
+- Automatic resize to 64x64 pixels
+- Converts to BLP format with preview
+- Select which icons to add to your custom DBC
+- Generates **SpellIcon_Custom.dbc** with new icon IDs
+
+### 4. Export & Deploy
+- Download SpellIcon_Custom.dbc (contains only new icons)
+- Copy both custom_dbc/ and custom_icon/ to your WoW server directory
+- Merge DBC files with your server's existing databases
+
+## API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/copy-files` | POST | Copy DBC or icon files from base to custom |
+| `/api/check-files` | GET | Check if files exist in custom folders |
+| `/api/upload-icon` | POST | Store uploaded BLP icon data |
+| `/api/export-dbc` | POST | Export modified DBC file |
+
+## Icon Comparison
+
+The app uses **base-icons-manifest.json** to compare:
+
+- **Base WotLK**: 6,308 icons from INT_335_wotlk/Icons/
+- **Custom Icons**: Any BLP file NOT in the base manifest
+- **DBC Entries**: Icon IDs from SpellIcon.dbc
+
+This lets you easily identify which icons are genuinely new additions vs standard WotLK icons.
+
+## Building for Production
+
+```bash
+npm run build
+# Creates optimized dist/ folder for deployment
+
+npm run preview
+# Test production build locally
+```
+
+## Development Notes
+
+- BLP codec supports WoW BLP1 and BLP2 formats
+- DBC parser handles SpellIcon.dbc binary format
+- Config system supports switching between base/custom folders
+- Image resizing uses Canvas API (64x64 target)
+- Backend uses Express with file system operations
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "File not found" errors | Ensure DBC_335_wotlk/ and INT_335_wotlk/ exist, then run `generate-icon-manifest.js` |
+| Backend not responding | Confirm `npm run server` is running; check port 3001 is free |
+| BLP conversion errors | Ensure images are RGB/RGBA; 64x64+ recommended |
+| Icons not showing | Hard refresh browser (Ctrl+Shift+R); check browser DevTools console |
+
+## License
+
+MIT License - Free for personal and commercial use
+
+## Contributing
+
+Pull requests welcome! Areas for improvement:
+- Support for other DBC types (creatures, items, etc.)
+- Batch icon processing with progress bars
+- Icon preview with animations
+- Server-side BLP conversion using native libraries
+
+## Support
+
+- 📝 [Issues](https://github.com/yourusername/wow-spell-icon-editor/issues)
+- 💬 [Discussions](https://github.com/yourusername/wow-spell-icon-editor/discussions)
+- 🎮 Compatible with WoW 3.3.5 private servers (Trinity Core, MaNGOS, etc.)
+- Make DBC editing accessible and visual for everyone
+- Remove the need for Windows-only tools or manual hex editing
+- Support for all major DBCs used in WotLK private servers
+- Easy import/export and batch editing
+- Ready for both local and server-hosted use
+
+## Usage
+1. Install dependencies: `npm install`
+2. Start the app: `npm run dev`
+3. Open [http://localhost:5173](http://localhost:5173) in your browser
+4. Use the tabs to edit talents, spell icons, and more
+
+## Folder Structure
+- `src/components/` — React components for each editor
+- `src/types/` — TypeScript interfaces for DBC structures
+- `public/` — Place default DBC files and assets here
+- `interface/` — Place BLP icon files here for use in the app
+
+## Contributing
+Pull requests and suggestions are welcome!
+    },
+  },
+])
+```
+
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```
