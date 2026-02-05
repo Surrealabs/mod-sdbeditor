@@ -315,6 +315,44 @@ app.post('/api/starter/settings/login-title', (req, res) => {
   }
 });
 
+app.get('/api/starter/settings/page-title', (_req, res) => {
+  try {
+    const settingsPath = path.join(__dirname, 'starter-settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const data = fs.readFileSync(settingsPath, 'utf8');
+      const settings = JSON.parse(data);
+      return res.json({ pageTitle: settings.pageTitle || 'SDBEditor' });
+    }
+  } catch (err) {
+    console.error('Failed to read settings:', err.message);
+  }
+  res.json({ pageTitle: 'SDBEditor' });
+});
+
+app.post('/api/starter/settings/page-title', (req, res) => {
+  try {
+    const { pageTitle } = req.body || {};
+    if (!pageTitle) {
+      return res.status(400).json({ error: 'pageTitle required' });
+    }
+
+    const settingsPath = path.join(__dirname, 'starter-settings.json');
+    let settings = {};
+    if (fs.existsSync(settingsPath)) {
+      const data = fs.readFileSync(settingsPath, 'utf8');
+      settings = JSON.parse(data);
+    }
+    settings.pageTitle = pageTitle;
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+
+    console.log(`✓ Page title updated: "${pageTitle}"`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to save settings:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/starter/settings/background', (_req, res) => {
   try {
     const settingsPath = path.join(__dirname, 'starter-settings.json');
@@ -324,13 +362,14 @@ app.get('/api/starter/settings/background', (_req, res) => {
       return res.json({ 
         backgroundColor: settings.backgroundColor || '#ffffff',
         textColor: settings.textColor || '#000000',
-        contentBoxColor: settings.contentBoxColor || '#f9f9f9'
+        contentBoxColor: settings.contentBoxColor || '#f9f9f9',
+        pageTitle: settings.pageTitle || 'SDBEditor'
       });
     }
   } catch (err) {
     console.error('Failed to read settings:', err.message);
   }
-  res.json({ backgroundColor: '#ffffff', textColor: '#000000', contentBoxColor: '#f9f9f9' });
+  res.json({ backgroundColor: '#ffffff', textColor: '#000000', contentBoxColor: '#f9f9f9', pageTitle: 'SDBEditor' });
 });
 
 app.post('/api/starter/settings/background', (req, res) => {
@@ -639,6 +678,202 @@ app.post('/api/starter/self-restart', requireAuth, (req, res) => {
       process.exit(0);
     }, 500);
   }, 100);
+});
+
+// Account Control Endpoints
+app.post('/api/starter/account/search', requireAuth, async (req, res) => {
+  const { username } = req.body || {};
+  if (!username) {
+    return res.status(400).json({ error: 'Username required' });
+  }
+
+  const config = readConfig();
+  if (!config) {
+    return res.status(400).json({ error: 'Starter service not configured' });
+  }
+
+  let connection;
+  try {
+    connection = await mysql.createConnection(config.db);
+
+    // Get account info
+    const [accountRows] = await connection.execute(
+      'SELECT id, username, email, expansion, locked FROM account WHERE username = ? LIMIT 1',
+      [username]
+    );
+
+    if (!accountRows.length) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    const account = accountRows[0];
+
+    // Get GM level
+    const [accessRows] = await connection.execute(
+      'SELECT MAX(gmlevel) AS gmlevel FROM account_access WHERE id = ?',
+      [account.id]
+    );
+
+    res.json({
+      id: account.id,
+      username: account.username,
+      email: account.email,
+      expansion: account.expansion || 0,
+      gmLevel: accessRows[0]?.gmlevel ?? 0,
+      locked: account.locked || 0,
+    });
+  } catch (error) {
+    console.error('Account search error:', error);
+    res.status(403).json({ error: 'An error occurred. Please try again later.' });
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
+  }
+});
+
+app.post('/api/starter/account/set-expansion', requireAuth, async (req, res) => {
+  const { accountId, expansion } = req.body || {};
+  if (!accountId || expansion === undefined) {
+    return res.status(400).json({ error: 'Account ID and expansion level required' });
+  }
+
+  const config = readConfig();
+  if (!config) {
+    return res.status(400).json({ error: 'Starter service not configured' });
+  }
+
+  let connection;
+  try {
+    connection = await mysql.createConnection(config.db);
+
+    await connection.execute(
+      'UPDATE account SET expansion = ? WHERE id = ?',
+      [expansion, accountId]
+    );
+
+    console.log(`✓ Expansion level updated for account ${accountId}: ${expansion}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Set expansion error:', error);
+    res.status(403).json({ error: 'An error occurred. Please try again later.' });
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
+  }
+});
+
+app.post('/api/starter/account/set-gmlevel', requireAuth, async (req, res) => {
+  const { accountId, gmLevel } = req.body || {};
+  if (!accountId || gmLevel === undefined) {
+    return res.status(400).json({ error: 'Account ID and GM level required' });
+  }
+
+  const config = readConfig();
+  if (!config) {
+    return res.status(400).json({ error: 'Starter service not configured' });
+  }
+
+  let connection;
+  try {
+    connection = await mysql.createConnection(config.db);
+
+    // Delete existing access entry if it exists
+    await connection.execute(
+      'DELETE FROM account_access WHERE id = ? AND (RealmID = 255 OR RealmID = -1)',
+      [accountId]
+    );
+
+    // Insert new access entry if gmLevel > 0
+    if (gmLevel > 0) {
+      await connection.execute(
+        'INSERT INTO account_access (id, gmlevel, RealmID) VALUES (?, ?, -1)',
+        [accountId, gmLevel]
+      );
+    }
+
+    console.log(`✓ GM level updated for account ${accountId}: ${gmLevel}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Set GM level error:', error);
+    res.status(403).json({ error: 'An error occurred. Please try again later.' });
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
+  }
+});
+
+app.post('/api/starter/account/ban', requireAuth, async (req, res) => {
+  const { accountId } = req.body || {};
+  if (!accountId) {
+    return res.status(400).json({ error: 'Account ID required' });
+  }
+
+  const config = readConfig();
+  if (!config) {
+    return res.status(400).json({ error: 'Starter service not configured' });
+  }
+
+  let connection;
+  try {
+    connection = await mysql.createConnection(config.db);
+
+    await connection.execute(
+      'UPDATE account SET locked = 1 WHERE id = ?',
+      [accountId]
+    );
+
+    console.log(`✓ Account ${accountId} banned`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Ban account error:', error);
+    res.status(403).json({ error: 'An error occurred. Please try again later.' });
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
+  }
+});
+
+app.post('/api/starter/account/delete', requireAuth, async (req, res) => {
+  const { accountId } = req.body || {};
+  if (!accountId) {
+    return res.status(400).json({ error: 'Account ID required' });
+  }
+
+  const config = readConfig();
+  if (!config) {
+    return res.status(400).json({ error: 'Starter service not configured' });
+  }
+
+  let connection;
+  try {
+    connection = await mysql.createConnection(config.db);
+
+    // Delete account access
+    await connection.execute(
+      'DELETE FROM account_access WHERE id = ?',
+      [accountId]
+    );
+
+    // Delete account
+    await connection.execute(
+      'DELETE FROM account WHERE id = ?',
+      [accountId]
+    );
+
+    console.log(`✓ Account ${accountId} deleted`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(403).json({ error: 'An error occurred. Please try again later.' });
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
+  }
 });
 
 app.listen(PORT, HOST, () => {

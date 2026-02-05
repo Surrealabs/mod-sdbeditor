@@ -6,9 +6,10 @@ import TalentBuilder from './components/TalentBuilder';
 import TalentEditor from './components/TalentEditor';
 import SpellIconEditor from './components/SpellIconEditor';
 import ServerStarter from './components/ServerStarter';
+import AccountControl from './components/AccountControl';
 
 function App() {
-  const [tab, setTab] = useState<'armory' | 'talentbuilder' | 'talenteditor' | 'spellicon' | 'serverstarter' | 'settings'>('armory');
+  const [tab, setTab] = useState<'armory' | 'talentbuilder' | 'talenteditor' | 'spellicon' | 'serverstarter' | 'accountcontrol' | 'settings'>('armory');
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('starterToken'));
   const [gmLevel, setGmLevel] = useState<number>(() => Number(localStorage.getItem('starterGmLevel') || 0));
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -21,6 +22,8 @@ function App() {
   const [headerUploadBusy, setHeaderUploadBusy] = useState(false);
   const [loginTitle, setLoginTitle] = useState<string>('SDBEditor Login');
   const [editingLoginTitle, setEditingLoginTitle] = useState<string>('');
+  const [pageTitle, setPageTitle] = useState<string>('SDBEditor');
+  const [editingPageTitle, setEditingPageTitle] = useState<string>('');
   const [backgroundColor, setBackgroundColor] = useState<string>('#ffffff');
   const [editingBackgroundColor, setEditingBackgroundColor] = useState<string>('#ffffff');
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
@@ -29,6 +32,11 @@ function App() {
   const [editingTextColor, setEditingTextColor] = useState<string>('#000000');
   const [contentBoxColor, setContentBoxColor] = useState<string>('#f9f9f9');
   const [editingContentBoxColor, setEditingContentBoxColor] = useState<string>('#f9f9f9');
+
+  // Update document title when pageTitle changes
+  useEffect(() => {
+    document.title = pageTitle;
+  }, [pageTitle]);
 
   const starterBase = useMemo(() => {
     return `http://${window.location.hostname}:5000`;
@@ -96,6 +104,10 @@ function App() {
         if (data.contentBoxColor) {
           setContentBoxColor(data.contentBoxColor);
           setEditingContentBoxColor(data.contentBoxColor);
+        }
+        if (data.pageTitle) {
+          setPageTitle(data.pageTitle);
+          setEditingPageTitle(data.pageTitle);
         }
       })
       .catch(() => {
@@ -225,6 +237,21 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to save login title:', err);
+    }
+  };
+
+  const onSavePageTitle = async () => {
+    try {
+      const response = await fetch(`${starterBase}/api/starter/settings/page-title`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageTitle: editingPageTitle }),
+      });
+      if (response.ok) {
+        setPageTitle(editingPageTitle);
+      }
+    } catch (err) {
+      console.error('Failed to save page title:', err);
     }
   };
 
@@ -534,6 +561,22 @@ function App() {
             style={{
               padding: '8px 16px',
               border: 'none',
+              borderBottom: tab === 'accountcontrol' ? '2px solid #007bff' : '2px solid transparent',
+              background: 'none',
+              cursor: 'pointer',
+              fontWeight: tab === 'accountcontrol' ? 'bold' : 'normal',
+              color: textColor,
+            }}
+            onClick={() => setTab('accountcontrol')}
+          >
+            Account Control
+          </button>
+        )}
+        {gmLevel > 0 && (
+          <button
+            style={{
+              padding: '8px 16px',
+              border: 'none',
               borderBottom: tab === 'settings' ? '2px solid #007bff' : '2px solid transparent',
               background: 'none',
               cursor: 'pointer',
@@ -594,6 +637,9 @@ function App() {
         )}
         {tab === 'serverstarter' && (
           <ServerStarter token={token} baseUrl={starterBase} />
+        )}
+        {tab === 'accountcontrol' && (
+          <AccountControl token={token} baseUrl={starterBase} />
         )}
         {tab === 'settings' && (
           gmLevel > 0 ? (
@@ -798,6 +844,44 @@ function App() {
                 </p>
                 <button
                   onClick={onSaveLoginTitle}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 4,
+                    border: 'none',
+                    background: '#007bff',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  Save
+                </button>
+              </div>
+
+              {/* Page Title */}
+              <div style={{ marginBottom: 24, padding: 16, background: contentBoxColor, borderRadius: 8 }}>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                  Page Title
+                </label>
+                <input
+                  type="text"
+                  value={editingPageTitle}
+                  onChange={(e) => setEditingPageTitle(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: 8,
+                    borderRadius: 4,
+                    border: '1px solid #ccc',
+                    marginBottom: 12,
+                    boxSizing: 'border-box',
+                  }}
+                  placeholder="e.g., Surrealabs Server"
+                />
+                <p style={{ fontSize: 12, color: '#666', margin: 0, marginBottom: 12 }}>
+                  Currently: <strong>{pageTitle}</strong>
+                </p>
+                <button
+                  onClick={onSavePageTitle}
                   style={{
                     padding: '6px 12px',
                     borderRadius: 4,
