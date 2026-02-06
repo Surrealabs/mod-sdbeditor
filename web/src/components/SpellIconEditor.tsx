@@ -1,7 +1,20 @@
+// Error logging for SpellIconEditor
+function logSpellIconEditorError(message: string) {
+  fetch('/error-logs/spell-icon-errors.log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ error: message }),
+  }).catch(() => {});
+}
+
+// Ensures a string ends with .blp (case-insensitive)
+function ensureBlpExtension(name: string): string {
+  return name.toLowerCase().endsWith('.blp') ? name : name + '.blp';
+}
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { BLPFile } from "../lib/blp-converter-esm.js";
 import { DBCParser, SpellIconParser, type SpellIconRecord } from "../lib/dbc-parser";
 import { loadConfig, getActiveIconPath, type AppConfig } from "../lib/config";
+import { useGlobalIconCache } from "../lib/useIconCache";
 import SettingsPanel from "./SettingsPanel";
 
 interface ImportedIcon {
@@ -12,7 +25,14 @@ interface ImportedIcon {
   preview: string;
 }
 
-const SpellIconEditor: React.FC = () => {
+type Props = {
+  textColor: string;
+  contentBoxColor: string;
+};
+
+const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
+  const { getCachedIcon, setCachedIcon } = useGlobalIconCache();
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragZoneRef = useRef<HTMLDivElement>(null);
   const dbcDragZoneRef = useRef<HTMLDivElement>(null);
@@ -38,21 +58,18 @@ const SpellIconEditor: React.FC = () => {
   const [unmappedIcons, setUnmappedIcons] = useState<string[]>([]);
   const [selectedUnmapped, setSelectedUnmapped] = useState<Set<string>>(new Set());
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [baseIconsSet, setBaseIconsSet] = useState<Set<string>>(new Set());
-  const [newIconsOnly, setNewIconsOnly] = useState<string[]>([]);
+
+  useEffect(() => {
+    // Global error handler for this component
+    const errorHandler = (event: ErrorEvent) => {
+      logSpellIconEditorError(`Uncaught error: ${event.message} at ${event.filename}:${event.lineno}`);
+    };
+    window.addEventListener('error', errorHandler);
+    return () => window.removeEventListener('error', errorHandler);
+  }, []);
 
   useEffect(() => {
     loadConfig().then(setConfig);
-    
-    // Load base icons manifest
-    fetch('/base-icons-manifest.json')
-      .then(res => res.json())
-      .then(data => {
-        const baseSet = new Set(data.icons.map((icon: string) => icon.toLowerCase()));
-        setBaseIconsSet(baseSet);
-        console.log(`✓ Loaded ${baseSet.size} base WotLK icons`);
-      })
-      .catch(err => console.error('Failed to load base icons manifest:', err));
   }, []);
 
   useEffect(() => {
@@ -61,8 +78,10 @@ const SpellIconEditor: React.FC = () => {
         const response = await fetch("/icons-manifest.json");
         if (response.ok) {
           const manifest = await response.json();
-          setIcons(manifest.files);
-          if (manifest.files.length > 0) setSelectedIcon(manifest.files[0]);
+          // Keep ORIGINAL filenames WITH extensions (don't normalize)
+          const files = manifest.files || [];
+          setIcons(files);
+          if (files.length > 0) setSelectedIcon(files[0]);
         }
       } catch (err) {
         console.error("Failed to load icons:", err);
@@ -77,9 +96,68 @@ const SpellIconEditor: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/Interface/Icons/${selectedIcon}`);
-        if (!response.ok) throw new Error(`Failed to load ${selectedIcon}`);
-        const buffer = await response.arrayBuffer();
+        // Check cache first
+        const cached = getCachedIcon(selectedIcon);
+        if (cached) {
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const img = new Image();
+            img.onload = () => {
+              const ctx = canvas.getContext("2d");
+              if (ctx) {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+              }
+            };
+            img.src = cached;
+          }
+          setLoading(false);
+          return;
+        }
+
+        const iconPath = config ? getActiveIconPath(config) : '/custom-icon';
+        
+        // Resolve actual filename case-insensitively from server
+        let actualFilename = selectedIcon;
+        try {
+          const resolveRes = await fetch(`/api/resolve-icon/custom-icon/${encodeURIComponent(selectedIcon)}`);
+          if (resolveRes.ok) {
+            const resolved = await resolveRes.json();
+            if (resolved.found && resolved.filename) {
+              actualFilename = resolved.filename;
+              console.log(`SpellIconEditor preview: Resolved ${selectedIcon} -> ${actualFilename}`);
+            }
+          }
+        } catch (e) {
+          console.warn(`Failed to resolve icon name:`, e);
+        }
+        
+        // Try resolved filename
+        const possiblePaths = [
+          `/custom-icon/${actualFilename}`,
+        ];
+        
+        let buffer: ArrayBuffer | null = null;
+        let loadedPath = '';
+        for (const path of possiblePaths) {
+          try {
+            const response = await fetch(path);
+            if (response.ok) {
+              buffer = await response.arrayBuffer();
+              loadedPath = path;
+              console.log(`SpellIconEditor: Loaded from ${path}`);
+              break;
+            }
+          } catch (e) {
+            // Try next path
+          }
+        }
+        
+        if (!buffer) {
+          throw new Error(`Icon not found in custom-icon: ${selectedIcon}`);
+        }
+        
         const blp = new BLPFile(new Uint8Array(buffer));
         const pixels = blp.getPixels(0) as any;
         const rgba = pixels?.buffer ? pixels.buffer : pixels;
@@ -92,6 +170,19 @@ const SpellIconEditor: React.FC = () => {
             const imageData = ctx.createImageData(blp.width, blp.height);
             imageData.data.set(rgba);
             ctx.putImageData(imageData, 0, 0);
+            
+            // Cache the result as data URL
+            canvas.toBlob(blob => {
+              const url = URL.createObjectURL(blob!);
+              // Convert to data URL
+              const reader = new FileReader();
+              reader.onload = () => {
+                if (typeof reader.result === 'string') {
+                  setCachedIcon(selectedIcon, reader.result);
+                }
+              };
+              reader.readAsDataURL(blob!);
+            });
           }
         }
       } catch (err) {
@@ -101,37 +192,41 @@ const SpellIconEditor: React.FC = () => {
       }
     };
     loadIcon();
-  }, [selectedIcon, mode]);
+  }, [selectedIcon, mode, config, getCachedIcon, setCachedIcon]);
 
   const getThumbnail = useCallback(
     async (iconName: string): Promise<string> => {
+      // Check both caches
       if (cachedThumbs.has(iconName)) return cachedThumbs.get(iconName)!;
-      if (!config) return '';
+      const globalCached = getCachedIcon(iconName);
+      if (globalCached) return globalCached;
+      
       try {
-        const iconPath = getActiveIconPath(config);
-        const response = await fetch(`${iconPath}/${iconName}.blp`);
-        if (!response.ok) return "";
-        const buffer = await response.arrayBuffer();
-        const blp = new BLPFile(new Uint8Array(buffer));
-        const pixels = blp.getPixels(0) as any;
-        const rgba = pixels?.buffer ? pixels.buffer : pixels;
-        const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = blp.width;
-        tempCanvas.height = blp.height;
-        const ctx = tempCanvas.getContext("2d");
-        if (ctx) {
-          const imageData = ctx.createImageData(blp.width, blp.height);
-          imageData.data.set(rgba);
-          ctx.putImageData(imageData, 0, 0);
+        // Load from pre-generated thumbnail (PNG)
+        const thumbnailUrl = `/thumbnails/${iconName.replace(/\.blp$/i, '')}.png`;
+        const thumbResponse = await fetch(thumbnailUrl);
+        if (!thumbResponse.ok) {
+          console.warn(`Thumbnail not found: ${thumbnailUrl}`);
+          return "";
         }
-        const dataUrl = tempCanvas.toDataURL();
+
+        // Convert blob to data URL for caching
+        const blob = await thumbResponse.blob();
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+
         setCachedThumbs((prev) => new Map(prev).set(iconName, dataUrl));
+        setCachedIcon(iconName, dataUrl);
         return dataUrl;
       } catch (err) {
+        console.error(`Failed to load thumbnail for ${iconName}:`, err);
         return "";
       }
     },
-    [cachedThumbs]
+    [cachedThumbs, getCachedIcon, setCachedIcon]
   );
 
   const handleDBCImport = async (file: File) => {
@@ -139,21 +234,22 @@ const SpellIconEditor: React.FC = () => {
     try {
       const buffer = await file.arrayBuffer();
       const dbc = DBCParser.parseDBCFile(buffer);
-      const spellIcons = SpellIconParser.parse(dbc);
+      const parser = (SpellIconParser as any)?.parse
+        ? SpellIconParser
+        : (SpellIconParser as any)?.default;
+      if (!parser || typeof parser.parse !== 'function') {
+        const message = `SpellIconParser.parse is not a function (type: ${typeof SpellIconParser})`;
+        logSpellIconEditorError(message);
+        throw new Error(message);
+      }
+      const spellIcons = parser.parse(dbc);
       setExistingDBC(spellIcons);
-      const existingNames = new Set(spellIcons.map((r) => r.iconPath.toLowerCase()));
-      setDBCCompare({ existing: existingNames, new: new Set(importedIcons.map((i) => i.name.toLowerCase())) });
+      const existingNames = new Set<string>(spellIcons.map((r: any) => r.iconPath.toLowerCase()));
+      setDBCCompare({ existing: existingNames, new: new Set(importedIcons.map((i: any) => i.name.toLowerCase())) });
       
       // Find unmapped icons (icons in custom folder but not in DBC)
       const unmapped = icons.filter(icon => !existingNames.has(icon.toLowerCase()));
       setUnmappedIcons(unmapped);
-      
-      // Identify NEW icons (not in base WotLK manifest)
-      const newIcons = unmapped.filter(icon => 
-        !baseIconsSet.has(icon.toLowerCase().replace(/\.blp$/i, ''))
-      );
-      setNewIconsOnly(newIcons);
-      console.log(`Found ${newIcons.length} NEW custom icons (not in base WotLK)`);
       
       // Extract naming patterns
       const patterns = extractNamingPatterns(Array.from(existingNames));
@@ -260,6 +356,56 @@ const SpellIconEditor: React.FC = () => {
     setImportedIcons((prev) => prev.filter((icon) => icon.id !== id));
   };
 
+  const handleUploadToServer = async () => {
+    if (importedIcons.length === 0) {
+      setError("No icons to upload");
+      return;
+    }
+    
+    try {
+      let uploaded = 0;
+      let failed = 0;
+      
+      for (const icon of importedIcons) {
+        try {
+          // Convert to BLP format
+          const blpData = createSimpleBLP(icon.imageData);
+          const base64Data = btoa(String.fromCharCode(...blpData));
+          
+          // Upload to server
+          const response = await fetch('/api/upload-icon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: icon.name,
+              blpData: base64Data
+            })
+          });
+          
+          if (response.ok) {
+            uploaded++;
+          } else {
+            failed++;
+            console.error(`Failed to upload ${icon.name}:`, await response.text());
+          }
+        } catch (err) {
+          failed++;
+          console.error(`Upload error for ${icon.name}:`, err);
+        }
+      }
+      
+      setError(null);
+      alert(`Upload complete!\n✓ ${uploaded} icons uploaded\n✗ ${failed} failed\n\nThumbnails will be generated automatically.`);
+      
+      // Reload icons list after upload
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleBatchConvert = async () => {
     if (importedIcons.length === 0) {
       setError("No icons to convert");
@@ -341,12 +487,14 @@ const SpellIconEditor: React.FC = () => {
     // Save to custom_dbc folder instead of downloading
     downloadFile(dbcContent, "SpellIcon_Custom.dbc", "application/octet-stream");
     
+    const customDbcPath = config?.paths.custom.dbc || 'custom-dbc';
+    const customIconPath = config?.paths.custom.icons || 'custom-icon';
     alert(
       `✓ Added ${selectedUnmapped.size} new icons to DBC!\n\n` +
       `Total icons in new DBC: ${mergedRecords.length}\n` +
       `New IDs: ${maxId + 1} - ${maxId + selectedUnmapped.size}\n\n` +
       `File saved as: SpellIcon_Custom.dbc\n` +
-      `Copy both custom_dbc/ and custom_icon/ folders to your WoW directory.`
+      `Copy both ${customDbcPath}/ and ${customIconPath}/ folders to your WoW directory.`
     );
     
     // Update state to reflect new DBC
@@ -356,10 +504,10 @@ const SpellIconEditor: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: "16px" }}>
-      <h2 style={{ textAlign: "left" }}>Spell Icon Editor</h2>
+    <div style={{ padding: "16px", color: textColor }}>
+      <h2 style={{ textAlign: "left", color: textColor }}>Spell Icon Editor</h2>
       
-      <SettingsPanel />
+      <SettingsPanel textColor={textColor} contentBoxColor={contentBoxColor} />
       
       <div style={{ marginBottom: "20px", display: "flex", gap: "8px" }}>
         <button
@@ -399,172 +547,83 @@ const SpellIconEditor: React.FC = () => {
       )}
 
       {mode === "browse" && (
-        <>
-          <div style={{ display: "flex", gap: "16px" }}>
-            {/* Left side: DBC entries */}
-            <div style={{ flex: "1" }}>
-              <h3 style={{ textAlign: "left" }}>DBC Entries ({existingDBC.length})</h3>
-              <p style={{ fontSize: "14px", color: "#666" }}>Icons currently in your SpellIcon.dbc file</p>
-              
-              <div style={{ marginBottom: "12px" }}>
-                <input
-                  type="text"
-                  placeholder="Search DBC entries..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  style={{
-                    padding: "8px",
-                    borderRadius: "4px",
-                    border: "1px solid #ccc",
-                    width: "100%",
-                    fontSize: "14px",
-                  }}
-                />
-              </div>
+        <div>
+          <h3 style={{ textAlign: "left" }}>Spell Icons ({filteredIcons.length})</h3>
+          <p style={{ fontSize: "14px", color: "#666" }}>
+            Listing icons from the custom folder manifest.
+          </p>
 
-              <div style={{
-                border: "1px solid #ddd",
+          <div style={{ marginBottom: "12px" }}>
+            <input
+              type="text"
+              placeholder="Search icons..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{
+                padding: "8px",
                 borderRadius: "4px",
-                maxHeight: "500px",
-                overflowY: "auto",
-                backgroundColor: "#fff",
-              }}>
-                {existingDBC.length === 0 ? (
-                  <div style={{ padding: "20px", textAlign: "center", color: "#999" }}>
-                    No DBC file imported. Import a SpellIcon.dbc in Create mode.
-                  </div>
-                ) : (
-                  existingDBC
-                    .filter(record => record.iconPath.toLowerCase().includes(searchTerm.toLowerCase()))
-                    .map((record) => (
-                      <div key={record.id} style={{
-                        display: "flex",
-                        alignItems: "center",
-                        padding: "8px",
-                        borderBottom: "1px solid #eee",
-                        gap: "12px",
-                      }}>
-                        <div style={{
-                          width: "50px",
-                          fontSize: "13px",
-                          color: "#666",
-                          fontWeight: "bold",
-                        }}>
-                          ID: {record.id}
-                        </div>
-                        <div style={{
-                          width: "64px",
-                          height: "64px",
-                          border: "1px solid #ccc",
-                          borderRadius: "4px",
-                          overflow: "hidden",
-                          flexShrink: 0,
-                        }}>
-                          <IconThumbnail
-                            iconName={record.iconPath}
-                            isSelected={false}
-                            onSelect={() => {}}
-                            getThumbnail={getThumbnail}
-                          />
-                        </div>
-                        <div style={{ flex: 1, fontSize: "14px" }}>
-                          {record.iconPath}
-                        </div>
-                      </div>
-                    ))
-                )}
-              </div>
-            </div>
+                border: "1px solid #ccc",
+                width: "100%",
+                fontSize: "14px",
+              }}
+            />
+          </div>
 
-            {/* Right side: New custom icons */}
-            <div style={{ flex: "1" }}>
-              <h3 style={{ textAlign: "left" }}>
-                New Custom Icons ({newIconsOnly.length})
-              </h3>
-              <p style={{ fontSize: "14px", color: "#666", marginBottom: "8px" }}>
-                Icons not in base WotLK ({unmappedIcons.length} total unmapped, {newIconsOnly.length} are custom)
-              </p>
-              
-              {newIconsOnly.length > 0 && (
-                <div style={{ marginBottom: "12px" }}>
-                  <button
-                    onClick={addSelectedToDBC}
-                    disabled={selectedUnmapped.size === 0}
+          <div
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: "4px",
+              maxHeight: "600px",
+              overflowY: "auto",
+              backgroundColor: "#fff",
+            }}
+          >
+            {filteredIcons.length === 0 ? (
+              <div style={{ padding: "20px", textAlign: "center", color: "#999" }}>
+                No icons found.
+              </div>
+            ) : (
+              filteredIcons.map((iconName) => (
+                <div
+                  key={iconName}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "8px 12px",
+                    borderBottom: "1px solid #eee",
+                    gap: "12px",
+                  }}
+                >
+                  <div
                     style={{
-                      padding: "8px 16px",
-                      backgroundColor: selectedUnmapped.size > 0 ? "#28a745" : "#ccc",
-                      color: "#fff",
-                      border: "none",
+                      width: "64px",
+                      height: "64px",
+                      border: "1px solid #ccc",
                       borderRadius: "4px",
-                      cursor: selectedUnmapped.size > 0 ? "pointer" : "not-allowed",
-                      fontSize: "14px",
-                      fontWeight: "bold",
+                      overflow: "hidden",
+                      flexShrink: 0,
                     }}
                   >
-                    Add Selected to New DBC ({selectedUnmapped.size})
-                  </button>
-                </div>
-              )}
-
-              <div style={{
-                border: "1px solid #ddd",
-                borderRadius: "4px",
-                maxHeight: "500px",
-                overflowY: "auto",
-                backgroundColor: "#fff",
-              }}>
-                {newIconsOnly.length === 0 ? (
-                  <div style={{ padding: "20px", textAlign: "center", color: "#999" }}>
-                    {existingDBC.length === 0 
-                      ? "Import a DBC file to detect new custom icons"
-                      : unmappedIcons.length === 0 
-                        ? "All icons in DBC!"
-                        : "All unmapped icons are from base WotLK"}
+                    <IconThumbnail
+                      iconName={iconName}
+                      isSelected={false}
+                      onSelect={() => {}}
+                      getThumbnail={getThumbnail}
+                    />
                   </div>
-                ) : (
-                  newIconsOnly.map((iconName) => (
-                    <div key={iconName} style={{
-                      display: "flex",
-                      alignItems: "center",
-                      padding: "8px",
-                      borderBottom: "1px solid #eee",
-                      gap: "12px",
-                      backgroundColor: selectedUnmapped.has(iconName) ? "#e7f3ff" : "transparent",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => toggleUnmappedSelection(iconName)}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedUnmapped.has(iconName)}
-                        onChange={() => toggleUnmappedSelection(iconName)}
-                        style={{ width: "18px", height: "18px", cursor: "pointer" }}
-                      />
-                      <div style={{
-                        width: "64px",
-                        height: "64px",
-                        border: "1px solid #ccc",
-                        borderRadius: "4px",
-                        overflow: "hidden",
-                        flexShrink: 0,
-                      }}>
-                        <IconThumbnail
-                          iconName={iconName}
-                          isSelected={false}
-                          onSelect={() => {}}
-                          getThumbnail={getThumbnail}
-                        />
-                      </div>
-                      <div style={{ flex: 1, fontSize: "14px" }}>
-                        {iconName}
-                      </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "14px", fontWeight: "500", marginBottom: "4px" }}>
+                      {iconName}
                     </div>
-                  ))
-                )}
-              </div>
-            </div>
+                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                      {ensureBlpExtension(iconName)}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
-        </>
+        </div>
       )}
 
       {mode === "create" && (
@@ -853,21 +912,38 @@ const SpellIconEditor: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <button
-                onClick={handleBatchConvert}
-                style={{
-                  padding: "12px 24px",
-                  backgroundColor: "#28a745",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                  fontSize: "16px",
-                  fontWeight: "bold",
-                }}
-              >
-                Step 4: Batch Convert & Download
-              </button>
+              <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                <button
+                  onClick={handleBatchConvert}
+                  style={{
+                    padding: "12px 24px",
+                    backgroundColor: "#28a745",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontSize: "16px",
+                    fontWeight: "bold",
+                  }}
+                >
+                  Convert & Download
+                </button>
+                <button
+                  onClick={handleUploadToServer}
+                  style={{
+                    padding: "12px 24px",
+                    backgroundColor: "#007bff",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                    fontSize: "16px",
+                    fontWeight: "bold",
+                  }}
+                >
+                  Upload to Server
+                </button>
+              </div>
             </>
           )}
         </>
@@ -945,26 +1021,51 @@ function createSimpleBLP(imageData: ImageData): Uint8Array {
   const width = imageData.width;
   const height = imageData.height;
   const data = imageData.data;
+  
+  // BLP header (156 bytes)
   const header = new Uint8Array(156);
   const view = new DataView(header.buffer);
-  header[0] = 0x42;
-  header[1] = 0x4c;
-  header[2] = 0x50;
-  header[3] = 0x31;
+  
+  // Magic: "BLP1"
+  header[0] = 0x42; // B
+  header[1] = 0x4c; // L
+  header[2] = 0x50; // P
+  header[3] = 0x31; // 1
+  
+  // Compression type: 1 = uncompressed
   view.setUint32(4, 1, true);
-  header[8] = 3;
-  header[9] = 8;
-  header[10] = 7;
-  header[11] = 1;
+  
+  // Flags and alpha
+  header[8] = 3;  // Alpha bit depth
+  header[9] = 8;  // Alpha encoding
+  header[10] = 7; // Has mipmaps
+  header[11] = 1; // Extra?
+  
+  // Dimensions
   view.setUint32(12, width, true);
   view.setUint32(16, height, true);
-  view.setUint32(20, 156, true);
-  view.setUint32(24, 0, true);
+  
+  // Mipmap offsets and sizes (only 1 mipmap at offset 156)
+  view.setUint32(20, 156, true);  // Mipmap 0 offset
+  view.setUint32(24, 0, true);    // Mipmap 1 offset (none)
+  
+  // Mipmap sizes
   const pixelDataSize = width * height * 4;
-  view.setUint32(100, pixelDataSize, true);
+  view.setUint32(100, pixelDataSize, true);  // Mipmap 0 size
+  
+  // Convert RGBA to BGRA (swap red and blue channels)
+  const bgra = new Uint8Array(pixelDataSize);
+  for (let i = 0; i < data.length; i += 4) {
+    bgra[i]     = data[i + 2]; // B
+    bgra[i + 1] = data[i + 1]; // G
+    bgra[i + 2] = data[i];     // R
+    bgra[i + 3] = data[i + 3]; // A
+  }
+  
+  // Combine header + pixel data
   const result = new Uint8Array(156 + pixelDataSize);
   result.set(header);
-  result.set(data, 156);
+  result.set(bgra, 156);
   return result;
 }
 
@@ -997,6 +1098,7 @@ function generateSpellIconDBC(records: SpellIconRecord[]): Uint8Array {
 
 function downloadFile(content: string | Uint8Array, filename: string, mimeType: string): void {
   const arr = content instanceof Uint8Array ? [content] : [content];
+  // @ts-ignore - BlobPart type compatibility at runtime
   const blob = new Blob(arr, { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

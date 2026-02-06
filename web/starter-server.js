@@ -1,3 +1,4 @@
+
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -5,6 +6,17 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import mysql from 'mysql2/promise';
 import { execFile, spawn } from 'child_process';
+
+// Error logging setup
+const ERROR_LOG_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public', 'error-logs');
+const ERROR_LOG_FILE = path.join(ERROR_LOG_DIR, 'starter-errors.log');
+if (!fs.existsSync(ERROR_LOG_DIR)) {
+  fs.mkdirSync(ERROR_LOG_DIR, { recursive: true });
+}
+function logErrorToFile(message) {
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(ERROR_LOG_FILE, `[${timestamp}] ${message}\n`);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -680,6 +692,25 @@ app.post('/api/starter/self-restart', requireAuth, (req, res) => {
   }, 100);
 });
 
+app.post('/api/starter/npm-restart', requireAuth, (req, res) => {
+  const config = readConfig();
+  const logsDir = config?.paths?.logsDir || '/tmp';
+  const outPath = path.join(logsDir, 'sdbeditor-vite.log');
+  const out = fs.openSync(outPath, 'a');
+
+  res.json({ success: true, message: 'Restarting npm dev server...' });
+
+  execFile('pkill', ['-f', 'vite'], () => {
+    const child = spawn('npm', ['run', 'dev'], {
+      cwd: __dirname,
+      detached: true,
+      stdio: ['ignore', out, out],
+    });
+    child.unref();
+    console.log(`✓ npm run dev restarted (PID: ${child.pid})`);
+  });
+});
+
 // Account Control Endpoints
 app.post('/api/starter/account/search', requireAuth, async (req, res) => {
   const { username } = req.body || {};
@@ -868,12 +899,24 @@ app.post('/api/starter/account/delete', requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Delete account error:', error);
+    logErrorToFile(`Delete account error: ${error.stack || error}`);
     res.status(403).json({ error: 'An error occurred. Please try again later.' });
   } finally {
     if (connection) {
       await connection.end();
     }
   }
+});
+
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Starter server error:', err);
+  logErrorToFile(`Starter server error: ${err.stack || err}`);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error',
+    details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  });
 });
 
 app.listen(PORT, HOST, () => {

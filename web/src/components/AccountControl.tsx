@@ -3,9 +3,11 @@ import React, { useState } from 'react';
 type Props = {
   token: string | null;
   baseUrl: string;
+  textColor: string;
+  contentBoxColor: string;
 };
 
-const AccountControl: React.FC<Props> = ({ token, baseUrl }) => {
+const AccountControl: React.FC<Props> = ({ token, baseUrl, textColor, contentBoxColor }) => {
   const [searchUsername, setSearchUsername] = useState('');
   const [selectedAccount, setSelectedAccount] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,9 +109,9 @@ const AccountControl: React.FC<Props> = ({ token, baseUrl }) => {
   };
 
   return (
-    <div style={{ padding: 12 }}>
+    <div style={{ padding: 12, color: textColor }}>
       <h3>Account Control</h3>
-      <p style={{ color: '#555' }}>
+      <p style={{ opacity: 0.7 }}>
         Search for accounts and manage expansion levels, GM levels, bans, and deletions.
       </p>
 
@@ -159,7 +161,7 @@ const AccountControl: React.FC<Props> = ({ token, baseUrl }) => {
       )}
 
       {selectedAccount && (
-        <div style={{ padding: 16, background: '#f9f9f9', borderRadius: 8 }}>
+        <div style={{ padding: 16, background: contentBoxColor, borderRadius: 8, color: textColor }}>
           <h4>Account: {selectedAccount.username}</h4>
           <div style={{ marginBottom: 16, fontSize: 14 }}>
             <p style={{ margin: '4px 0' }}>
@@ -178,7 +180,7 @@ const AccountControl: React.FC<Props> = ({ token, baseUrl }) => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
             {/* Expansion Level */}
-            <div style={{ padding: 12, background: '#fff', borderRadius: 4, border: '1px solid #ddd' }}>
+            <div style={{ padding: 12, background: contentBoxColor, borderRadius: 4, border: '1px solid #ddd' }}>
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', fontSize: 12 }}>
                 Expansion Level
               </label>
@@ -218,7 +220,7 @@ const AccountControl: React.FC<Props> = ({ token, baseUrl }) => {
             </div>
 
             {/* GM Level */}
-            <div style={{ padding: 12, background: '#fff', borderRadius: 4, border: '1px solid #ddd' }}>
+            <div style={{ padding: 12, background: contentBoxColor, borderRadius: 4, border: '1px solid #ddd' }}>
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', fontSize: 12 }}>
                 GM Level
               </label>

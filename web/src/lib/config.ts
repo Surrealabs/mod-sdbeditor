@@ -33,7 +33,25 @@ export async function loadConfig(): Promise<AppConfig> {
     if (!response.ok) {
       throw new Error('Failed to load config');
     }
-    cachedConfig = await response.json();
+    const fileConfig: AppConfig = await response.json();
+
+    let storedSettings: AppSettings | null = null;
+    const stored = localStorage.getItem('appConfig');
+    if (stored) {
+      try {
+        storedSettings = (JSON.parse(stored) as AppConfig).settings || null;
+      } catch (error) {
+        console.warn('Failed to parse stored settings:', error);
+      }
+    }
+
+    cachedConfig = {
+      ...fileConfig,
+      settings: {
+        ...fileConfig.settings,
+        ...(storedSettings || {}),
+      },
+    };
     
     // Check if initialization is needed
     if (cachedConfig && !cachedConfig.settings.initialized) {
@@ -68,13 +86,13 @@ function getDefaultConfig(): AppConfig {
   return {
     paths: {
       base: {
-        dbc: 'DBC_335_wotlk',
-        icons: 'INT_335_wotlk',
+        dbc: 'dbc',
+        icons: 'Icon',
         description: 'Default WoW 3.3.5 WotLK files (read-only reference)',
       },
       custom: {
-        dbc: 'custom_dbc',
-        icons: 'custom_icon',
+        dbc: 'custom-dbc',
+        icons: 'custom-icon',
         description: 'Custom user-modified files for server integration',
       },
     },
@@ -89,15 +107,13 @@ function getDefaultConfig(): AppConfig {
 
 export function saveConfig(config: AppConfig): void {
   cachedConfig = config;
-  localStorage.setItem('appConfig', JSON.stringify(config));
+  localStorage.setItem('appConfig', JSON.stringify({ settings: config.settings }));
 }
 
 export function getActiveDBCPath(config: AppConfig): string {
-  const source = config.settings.activeDBCSource;
-  return `/${config.paths[source].dbc}`;
+  return `/${config.paths.custom.dbc}`;
 }
 
 export function getActiveIconPath(config: AppConfig): string {
-  const source = config.settings.activeIconSource;
-  return `/${config.paths[source].icons}`;
+  return `/${config.paths.custom.icons}`;
 }

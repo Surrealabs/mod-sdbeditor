@@ -89,7 +89,7 @@ modules/mod-sdbeditor/web/
 │   │   └── SettingsPanel.tsx    # Initial setup & file management
 │   ├── lib/
 │   │   ├── dbc-parser.ts        # Binary DBC format parser
-│   │   ├── blp-converter-esm.js # BLP image codec
+│   │   ├── blpconverter.js # BLP image codec
 │   │   └── config.ts            # Configuration & path management
 │   └── App.tsx
 ├── server.js                     # Express backend for file operations

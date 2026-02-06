@@ -8,6 +8,78 @@ import SpellIconEditor from './components/SpellIconEditor';
 import ServerStarter from './components/ServerStarter';
 import AccountControl from './components/AccountControl';
 
+function FolderInitializer({ fileBase, contentBoxColor }: { fileBase: string; contentBoxColor: string }) {
+  const [status, setStatus] = useState<{ dir: string; exists: boolean }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ created: string[]; existed: string[] } | null>(null);
+
+  const checkStatus = async () => {
+    try {
+      const res = await fetch(`${fileBase}/api/initialize-folders/status`);
+      const data = await res.json();
+      setStatus(data.status);
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => { checkStatus(); }, []);
+
+  const initFolders = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${fileBase}/api/initialize-folders`, { method: 'POST' });
+      const data = await res.json();
+      setResult(data);
+      checkStatus();
+    } catch (err: unknown) {
+      setResult({ created: [], existed: [`Error: ${err instanceof Error ? err.message : String(err)}`] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const allReady = status?.every(s => s.exists);
+
+  return (
+    <div>
+      {status && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', marginBottom: 12, fontSize: 13 }}>
+          {status.map(s => (
+            <div key={s.dir} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ color: s.exists ? '#4caf50' : '#f44336' }}>{s.exists ? '✓' : '✗'}</span>
+              <span style={{ fontFamily: 'monospace' }}>{s.dir}/</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={initFolders}
+        disabled={busy}
+        style={{
+          padding: '8px 16px',
+          borderRadius: 4,
+          border: 'none',
+          background: allReady ? '#4caf50' : '#ff9800',
+          color: '#fff',
+          cursor: busy ? 'not-allowed' : 'pointer',
+          fontWeight: 'bold',
+          fontSize: 13,
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        {busy ? 'Initializing...' : allReady ? '✓ All Folders Ready' : 'Initialize Folders'}
+      </button>
+
+      {result && result.created.length > 0 && (
+        <p style={{ fontSize: 12, color: '#4caf50', marginTop: 8 }}>
+          Created: {result.created.join(', ')}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [tab, setTab] = useState<'armory' | 'talentbuilder' | 'talenteditor' | 'spellicon' | 'serverstarter' | 'accountcontrol' | 'settings'>('armory');
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('starterToken'));
@@ -22,24 +94,63 @@ function App() {
   const [headerUploadBusy, setHeaderUploadBusy] = useState(false);
   const [loginTitle, setLoginTitle] = useState<string>('SDBEditor Login');
   const [editingLoginTitle, setEditingLoginTitle] = useState<string>('');
-  const [pageTitle, setPageTitle] = useState<string>('SDBEditor');
+  const [pageTitle, setPageTitle] = useState<string>(() => localStorage.getItem('pageTitle') || 'SDBEditor');
   const [editingPageTitle, setEditingPageTitle] = useState<string>('');
-  const [backgroundColor, setBackgroundColor] = useState<string>('#ffffff');
-  const [editingBackgroundColor, setEditingBackgroundColor] = useState<string>('#ffffff');
+  const [backgroundColor, setBackgroundColor] = useState<string>(() => localStorage.getItem('backgroundColor') || '#ffffff');
+  const [editingBackgroundColor, setEditingBackgroundColor] = useState<string>(() => localStorage.getItem('backgroundColor') || '#ffffff');
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
   const [backgroundUploadBusy, setBackgroundUploadBusy] = useState(false);
   const [pageIcon, setPageIcon] = useState<string | null>(null);
   const [pageIconUploadBusy, setPageIconUploadBusy] = useState(false);
   const [pageIconError, setPageIconError] = useState<string | null>(null);
-  const [textColor, setTextColor] = useState<string>('#000000');
-  const [editingTextColor, setEditingTextColor] = useState<string>('#000000');
-  const [contentBoxColor, setContentBoxColor] = useState<string>('#f9f9f9');
-  const [editingContentBoxColor, setEditingContentBoxColor] = useState<string>('#f9f9f9');
+  const [textColor, setTextColor] = useState<string>(() => localStorage.getItem('textColor') || '#000000');
+  const [editingTextColor, setEditingTextColor] = useState<string>(() => localStorage.getItem('textColor') || '#000000');
+  const [contentBoxColor, setContentBoxColor] = useState<string>(() => localStorage.getItem('contentBoxColor') || '#f9f9f9');
+  const [editingContentBoxColor, setEditingContentBoxColor] = useState<string>(() => localStorage.getItem('contentBoxColor') || '#f9f9f9');
+  const [appErrors, setAppErrors] = useState<Array<{ id: number; message: string; time: string }>>([]);
+  const [showErrorPanel, setShowErrorPanel] = useState(false);
+
+  const addAppError = (message: string) => {
+    setAppErrors((prev) => {
+      const next = [{ id: Date.now(), message, time: new Date().toLocaleTimeString() }, ...prev];
+      return next.slice(0, 50);
+    });
+  };
 
   // Update document title when pageTitle changes
   useEffect(() => {
     document.title = pageTitle;
+    localStorage.setItem('pageTitle', pageTitle);
   }, [pageTitle]);
+
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      addAppError(`Uncaught: ${event.message} (${event.filename}:${event.lineno})`);
+    };
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const reason = typeof event.reason === 'string' ? event.reason : JSON.stringify(event.reason);
+      addAppError(`Unhandled rejection: ${reason}`);
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+    };
+  }, []);
+
+  // Save color settings to localStorage
+  useEffect(() => {
+    localStorage.setItem('backgroundColor', backgroundColor);
+  }, [backgroundColor]);
+
+  useEffect(() => {
+    localStorage.setItem('textColor', textColor);
+  }, [textColor]);
+
+  useEffect(() => {
+    localStorage.setItem('contentBoxColor', contentBoxColor);
+  }, [contentBoxColor]);
 
   // Update favicon when pageIcon changes
   useEffect(() => {
@@ -56,11 +167,11 @@ function App() {
   }, [pageIcon]);
 
   const starterBase = useMemo(() => {
-    return `http://${window.location.hostname}:5000`;
+    return ``;  // Empty - paths already include /api/starter via proxy
   }, []);
 
   const fileBase = useMemo(() => {
-    return `http://${window.location.hostname}:3001`;
+    return ``;  // Empty - paths already include /api via proxy  
   }, []);
 
   useEffect(() => {
@@ -132,18 +243,22 @@ function App() {
         if (data.backgroundColor) {
           setBackgroundColor(data.backgroundColor);
           setEditingBackgroundColor(data.backgroundColor);
+          localStorage.setItem('backgroundColor', data.backgroundColor);
         }
         if (data.textColor) {
           setTextColor(data.textColor);
           setEditingTextColor(data.textColor);
+          localStorage.setItem('textColor', data.textColor);
         }
         if (data.contentBoxColor) {
           setContentBoxColor(data.contentBoxColor);
           setEditingContentBoxColor(data.contentBoxColor);
+          localStorage.setItem('contentBoxColor', data.contentBoxColor);
         }
         if (data.pageTitle) {
           setPageTitle(data.pageTitle);
           setEditingPageTitle(data.pageTitle);
+          localStorage.setItem('pageTitle', data.pageTitle);
         }
       })
       .catch(() => {
@@ -156,6 +271,16 @@ function App() {
       setTab('armory');
     }
   }, [gmLevel, tab]);
+
+  // Sync editing fields when settings tab is opened
+  useEffect(() => {
+    if (tab === 'settings') {
+      setEditingPageTitle(pageTitle);
+      setEditingBackgroundColor(backgroundColor);
+      setEditingTextColor(textColor);
+      setEditingContentBoxColor(contentBoxColor);
+    }
+  }, [tab, pageTitle, backgroundColor, textColor, contentBoxColor]);
 
   const onLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -344,10 +469,20 @@ function App() {
       const formData = new FormData();
       formData.append('file', file);
 
+      console.log('Uploading background:', file.name, file.type, file.size);
+
       const response = await fetch(`${fileBase}/api/upload-background-image`, {
         method: 'POST',
         body: formData,
       });
+
+      console.log('Background upload response:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const data = await response.json();
+        console.error('Upload error:', data);
+        return;
+      }
 
       if (response.ok) {
         setBackgroundImage(`${fileBase}/background-image.png?t=${Date.now()}`);
@@ -381,12 +516,25 @@ function App() {
       const formData = new FormData();
       formData.append('file', file);
 
+      console.log('Uploading file:', file.name, file.type, file.size);
+
       const response = await fetch(`${fileBase}/api/upload-page-icon`, {
         method: 'POST',
         body: formData,
       });
 
-      const data = await response.json();
+      console.log('Upload response status:', response.status, response.statusText);
+      console.log('Response content-type:', response.headers.get('content-type'));
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        const text = await response.text();
+        console.error('Failed to parse response as JSON. Response text:', text.substring(0, 100));
+        setPageIconError('Server returned invalid response. Check browser console and server logs.');
+        return;
+      }
 
       if (response.ok && data.filename) {
         // Use the actual filename returned by the server
@@ -421,6 +569,83 @@ function App() {
       console.error('Failed to clear page icon:', err);
     }
   };
+
+  const errorPanel = (
+    <>
+      <button
+        type="button"
+        onClick={() => setShowErrorPanel((prev) => !prev)}
+        style={{
+          position: 'fixed',
+          right: 16,
+          bottom: 16,
+          zIndex: 9999,
+          padding: '8px 12px',
+          background: showErrorPanel ? '#111827' : '#1f2937',
+          color: '#fff',
+          border: 'none',
+          borderRadius: 6,
+          cursor: 'pointer',
+          fontSize: 12,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+        }}
+      >
+        Errors ({appErrors.length})
+      </button>
+      {showErrorPanel && (
+        <div
+          style={{
+            position: 'fixed',
+            right: 16,
+            bottom: 56,
+            width: 420,
+            maxWidth: '90vw',
+            maxHeight: '60vh',
+            overflow: 'auto',
+            zIndex: 9999,
+            background: '#0b0f19',
+            color: '#e5e7eb',
+            border: '1px solid #1f2937',
+            borderRadius: 8,
+            padding: 12,
+            boxShadow: '0 10px 24px rgba(0,0,0,0.35)',
+            fontSize: 12,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <strong>Runtime Errors</strong>
+            <button
+              type="button"
+              onClick={() => setAppErrors([])}
+              style={{
+                background: '#111827',
+                color: '#9ca3af',
+                border: '1px solid #374151',
+                borderRadius: 4,
+                padding: '2px 6px',
+                cursor: 'pointer',
+                fontSize: 11,
+              }}
+            >
+              Clear
+            </button>
+          </div>
+          <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
+            {appErrors.length === 0 ? (
+              <div style={{ color: '#9ca3af' }}>No errors captured.</div>
+            ) : (
+              appErrors.map((err) => (
+                <div key={err.id} style={{ borderTop: '1px solid #1f2937', paddingTop: 6 }}>
+                  <div style={{ color: '#fca5a5', fontWeight: 600 }}>{err.time}</div>
+                  <div style={{ color: '#e5e7eb', wordBreak: 'break-word' }}>{err.message}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   if (!token) {
     return (
@@ -485,6 +710,7 @@ function App() {
             {loginError && <div style={{ marginTop: 12, color: '#b91c1c', fontSize: 12 }}>{loginError}</div>}
           </div>
         )}
+        {errorPanel}
       </div>
     );
   }
@@ -499,6 +725,7 @@ function App() {
         color: textColor,
       }}
     >
+      {errorPanel}
       {/* Header Section */}
       <div
         style={{
@@ -697,35 +924,35 @@ function App() {
               Armory coming soon. Enabled for admins.
             </div>
           ) : (
-            <div style={{ padding: 12, color: '#999' }}>
+            <div style={{ padding: 12, color: textColor }}>
               Armory coming soon. Contact admin to enable.
             </div>
           )
         )}
-        {tab === 'talentbuilder' && <TalentBuilder />}
+        {tab === 'talentbuilder' && <TalentBuilder textColor={textColor} contentBoxColor={contentBoxColor} />}
         {tab === 'talenteditor' && (
           gmLevel > 0 ? (
-            <TalentEditor />
+            <TalentEditor textColor={textColor} contentBoxColor={contentBoxColor} />
           ) : (
-            <div style={{ padding: 12, color: '#999' }}>
+            <div style={{ padding: 12, color: textColor }}>
               You don't have permission to edit talent trees. Contact admin.
             </div>
           )
         )}
         {tab === 'spellicon' && (
           gmLevel > 0 ? (
-            <SpellIconEditor />
+            <SpellIconEditor textColor={textColor} contentBoxColor={contentBoxColor} />
           ) : (
-            <div style={{ padding: 12, color: '#999' }}>
+            <div style={{ padding: 12, color: textColor }}>
               You don't have permission to edit spell icons. Contact admin.
             </div>
           )
         )}
         {tab === 'serverstarter' && (
-          <ServerStarter token={token} baseUrl={starterBase} />
+          <ServerStarter token={token} baseUrl={starterBase} fileBaseUrl={fileBase} textColor={textColor} contentBoxColor={contentBoxColor} />
         )}
         {tab === 'accountcontrol' && (
-          <AccountControl token={token} baseUrl={starterBase} />
+          <AccountControl token={token} baseUrl={starterBase} textColor={textColor} contentBoxColor={contentBoxColor} />
         )}
         {tab === 'settings' && (
           gmLevel > 0 ? (
@@ -1051,6 +1278,16 @@ function App() {
                 >
                   Save
                 </button>
+              </div>
+
+              {/* Initialize Folders */}
+              <div style={{ marginBottom: 24, padding: 16, background: contentBoxColor, borderRadius: 8 }}>
+                <h4 style={{ marginTop: 0 }}>Initialize Folders</h4>
+                <p style={{ fontSize: 13, color: '#aaa', marginBottom: 12 }}>
+                  Create all required public directories (dbc, custom-dbc, icon, custom-icon,
+                  thumbnails, sprites, export, error-logs). Existing folders are left untouched.
+                </p>
+                <FolderInitializer fileBase={fileBase} contentBoxColor={contentBoxColor} />
               </div>
             </div>
           ) : (
