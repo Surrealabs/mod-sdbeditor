@@ -11,11 +11,84 @@ function logSpellIconEditorError(message: string) {
 function ensureBlpExtension(name: string): string {
   return name.toLowerCase().endsWith('.blp') ? name : name + '.blp';
 }
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { DBCParser, SpellIconParser, type SpellIconRecord } from "../lib/dbc-parser";
-import { loadConfig, getActiveIconPath, type AppConfig } from "../lib/config";
-import { useGlobalIconCache } from "../lib/useIconCache";
-import SettingsPanel from "./SettingsPanel";
+import { loadConfig, type AppConfig } from "../lib/config";
+
+type QuickFilter = "all" | "misc" | ClassKey | ProfessionKey;
+type ClassKey =
+  | "warrior"
+  | "paladin"
+  | "hunter"
+  | "rogue"
+  | "priest"
+  | "deathknight"
+  | "shaman"
+  | "mage"
+  | "warlock"
+  | "druid";
+type ProfessionKey =
+  | "alchemy"
+  | "blacksmithing"
+  | "enchanting"
+  | "engineering"
+  | "herbalism"
+  | "inscription"
+  | "jewelcrafting"
+  | "leatherworking"
+  | "mining"
+  | "skinning"
+  | "tailoring"
+  | "cooking"
+  | "firstaid"
+  | "fishing";
+
+const CLASS_FILTERS: Array<{ key: ClassKey; label: string; icon: string; keywords: string[] }> = [
+  { key: "warrior", label: "Warrior", icon: "⚔️", keywords: ["warrior", "arms", "fury", "protection", "stance", "bladestorm", "mortalstrike", "shield"] },
+  { key: "paladin", label: "Paladin", icon: "🛡️", keywords: ["paladin", "holy", "retribution", "protection", "crusader", "avenger", "judgement"] },
+  { key: "hunter", label: "Hunter", icon: "🏹", keywords: ["hunter", "beast", "marksmanship", "survival", "trap", "pet", "shot"] },
+  { key: "rogue", label: "Rogue", icon: "🗡️", keywords: ["rogue", "assassination", "combat", "subtlety", "stealth", "poison", "eviscerate"] },
+  { key: "priest", label: "Priest", icon: "✝️", keywords: ["priest", "discipline", "holy", "shadow", "mind", "smite"] },
+  { key: "deathknight", label: "Death Knight", icon: "💀", keywords: ["deathknight", "death_knight", "dk", "blood", "frost", "unholy", "rune"] },
+  { key: "shaman", label: "Shaman", icon: "🌩️", keywords: ["shaman", "elemental", "enhancement", "restoration", "totem", "lightning"] },
+  { key: "mage", label: "Mage", icon: "❄️", keywords: ["mage", "arcane", "fire", "frost", "spellfrost", "pyro", "blizzard"] },
+  { key: "warlock", label: "Warlock", icon: "🜏", keywords: ["warlock", "affliction", "demonology", "destruction", "fel", "curse", "shadowbolt"] },
+  { key: "druid", label: "Druid", icon: "🌿", keywords: ["druid", "balance", "feral", "restoration", "bear", "cat", "moonkin", "wrath"] },
+];
+
+const PROF_FILTERS: Array<{ key: ProfessionKey; label: string; icon: string; keywords: string[] }> = [
+  { key: "alchemy", label: "Alchemy", icon: "⚗️", keywords: ["alchemy", "potion", "elixir", "flask", "transmute"] },
+  { key: "blacksmithing", label: "Blacksmithing", icon: "🔨", keywords: ["blacksmith", "blacksmithing", "anvil", "forge"] },
+  { key: "enchanting", label: "Enchanting", icon: "✨", keywords: ["enchant", "enchanting", "disenchant", "arcanite"] },
+  { key: "engineering", label: "Engineering", icon: "⚙️", keywords: ["engineering", "engineer", "goblin", "gnome", "bomb"] },
+  { key: "herbalism", label: "Herbalism", icon: "🌱", keywords: ["herbalism", "herb", "flower", "bloom"] },
+  { key: "inscription", label: "Inscription", icon: "🖋️", keywords: ["inscription", "glyph", "ink", "scribe"] },
+  { key: "jewelcrafting", label: "Jewelcrafting", icon: "💎", keywords: ["jewel", "jewelcrafting", "gem", "prospect"] },
+  { key: "leatherworking", label: "Leatherworking", icon: "🧵", keywords: ["leatherworking", "leather", "hide", "drums"] },
+  { key: "mining", label: "Mining", icon: "⛏️", keywords: ["mining", "mine", "ore", "smelt"] },
+  { key: "skinning", label: "Skinning", icon: "🦴", keywords: ["skinning", "skin", "carcass"] },
+  { key: "tailoring", label: "Tailoring", icon: "🪡", keywords: ["tailor", "tailoring", "cloth", "weave"] },
+  { key: "cooking", label: "Cooking", icon: "🍳", keywords: ["cooking", "cook", "food", "feast"] },
+  { key: "firstaid", label: "First Aid", icon: "🩹", keywords: ["firstaid", "first_aid", "bandage"] },
+  { key: "fishing", label: "Fishing", icon: "🎣", keywords: ["fishing", "fish", "lure", "hook"] },
+];
+
+function normalizedIconName(iconName: string): string {
+  return iconName.toLowerCase().replace(/\.blp$/i, "");
+}
+
+function iconMatchesKeywords(iconName: string, keywords: string[]): boolean {
+  const normalized = normalizedIconName(iconName);
+  return keywords.some((keyword) => normalized.includes(keyword));
+}
+
+function getIconQuickBucket(iconName: string): QuickFilter {
+  const matchedProfession = PROF_FILTERS.find((p) => iconMatchesKeywords(iconName, p.keywords));
+  if (matchedProfession) return matchedProfession.key;
+  const matchedClass = CLASS_FILTERS.find((c) => iconMatchesKeywords(iconName, c.keywords));
+  if (matchedClass) return matchedClass.key;
+  return "misc";
+}
 
 interface ImportedIcon {
   id: string;
@@ -31,8 +104,6 @@ type Props = {
 };
 
 const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
-  const { getCachedIcon, setCachedIcon } = useGlobalIconCache();
-
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragZoneRef = useRef<HTMLDivElement>(null);
   const dbcDragZoneRef = useRef<HTMLDivElement>(null);
@@ -44,9 +115,12 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
   const [selectedIcon, setSelectedIcon] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [dbcLoading, setDBCLoading] = useState(false);
-  const [dbcImported, setDBCImported] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [cachedThumbs, setCachedThumbs] = useState<Map<string, string>>(new Map());
+  const [thumbCacheBuster, setThumbCacheBuster] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+  const [thumbStatus, setThumbStatus] = useState<string | null>(null);
+  const [thumbRebuilding, setThumbRebuilding] = useState(false);
   const [importedIcons, setImportedIcons] = useState<ImportedIcon[]>([]);
   const [mode, setMode] = useState<"browse" | "create">("browse");
   const [existingDBC, setExistingDBC] = useState<SpellIconRecord[]>([]);
@@ -75,11 +149,13 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
   useEffect(() => {
     const loadIconsList = async () => {
       try {
-        const response = await fetch("/icons-manifest.json");
+        const response = await fetch("/api/icon-manifest");
         if (response.ok) {
           const manifest = await response.json();
           // Keep ORIGINAL filenames WITH extensions (don't normalize)
-          const files = manifest.files || [];
+          const files = Array.isArray(manifest.icons)
+            ? manifest.icons.map((icon: { name: string }) => icon.name)
+            : (manifest.files || []);
           setIcons(files);
           if (files.length > 0) setSelectedIcon(files[0]);
         }
@@ -90,144 +166,64 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
     loadIconsList();
   }, []);
 
+  const getThumbnailUrl = useCallback(
+    (iconName: string): string => {
+      const baseName = iconName.replace(/\.blp$/i, "");
+      const cacheSuffix = thumbCacheBuster ? `?v=${thumbCacheBuster}` : "";
+      return `/thumbnails/${baseName}.png${cacheSuffix}`;
+    },
+    [thumbCacheBuster]
+  );
+
   useEffect(() => {
-    const loadIcon = async () => {
+    const loadIcon = () => {
       if (!selectedIcon || mode !== "browse") return;
       setLoading(true);
       setError(null);
       try {
-        // Check cache first
-        const cached = getCachedIcon(selectedIcon);
-        if (cached) {
-          const canvas = canvasRef.current;
-          if (canvas) {
-            const img = new Image();
-            img.onload = () => {
-              const ctx = canvas.getContext("2d");
-              if (ctx) {
-                canvas.width = img.width;
-                canvas.height = img.height;
-                ctx.drawImage(img, 0, 0);
-              }
-            };
-            img.src = cached;
-          }
-          setLoading(false);
-          return;
-        }
-
-        const iconPath = config ? getActiveIconPath(config) : '/custom-icon';
-        
-        // Resolve actual filename case-insensitively from server
-        let actualFilename = selectedIcon;
-        try {
-          const resolveRes = await fetch(`/api/resolve-icon/custom-icon/${encodeURIComponent(selectedIcon)}`);
-          if (resolveRes.ok) {
-            const resolved = await resolveRes.json();
-            if (resolved.found && resolved.filename) {
-              actualFilename = resolved.filename;
-              console.log(`SpellIconEditor preview: Resolved ${selectedIcon} -> ${actualFilename}`);
-            }
-          }
-        } catch (e) {
-          console.warn(`Failed to resolve icon name:`, e);
-        }
-        
-        // Try resolved filename
-        const possiblePaths = [
-          `/custom-icon/${actualFilename}`,
-        ];
-        
-        let buffer: ArrayBuffer | null = null;
-        let loadedPath = '';
-        for (const path of possiblePaths) {
-          try {
-            const response = await fetch(path);
-            if (response.ok) {
-              buffer = await response.arrayBuffer();
-              loadedPath = path;
-              console.log(`SpellIconEditor: Loaded from ${path}`);
-              break;
-            }
-          } catch (e) {
-            // Try next path
-          }
-        }
-        
-        if (!buffer) {
-          throw new Error(`Icon not found in custom-icon: ${selectedIcon}`);
-        }
-        
-        const blp = new BLPFile(new Uint8Array(buffer));
-        const pixels = blp.getPixels(0) as any;
-        const rgba = pixels?.buffer ? pixels.buffer : pixels;
+        const thumbSrc = getThumbnailUrl(selectedIcon);
         const canvas = canvasRef.current;
         if (canvas) {
-          canvas.width = blp.width;
-          canvas.height = blp.height;
           const ctx = canvas.getContext("2d");
           if (ctx) {
-            const imageData = ctx.createImageData(blp.width, blp.height);
-            imageData.data.set(rgba);
-            ctx.putImageData(imageData, 0, 0);
-            
-            // Cache the result as data URL
-            canvas.toBlob(blob => {
-              const url = URL.createObjectURL(blob!);
-              // Convert to data URL
-              const reader = new FileReader();
-              reader.onload = () => {
-                if (typeof reader.result === 'string') {
-                  setCachedIcon(selectedIcon, reader.result);
-                }
-              };
-              reader.readAsDataURL(blob!);
-            });
+            const img = new Image();
+            img.onload = () => {
+              canvas.width = img.width;
+              canvas.height = img.height;
+              ctx.drawImage(img, 0, 0);
+              setLoading(false);
+            };
+            img.onerror = () => {
+              setError(`Thumbnail not found for ${selectedIcon}`);
+              setLoading(false);
+            };
+            img.src = thumbSrc;
           }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setLoading(false);
       }
     };
     loadIcon();
-  }, [selectedIcon, mode, config, getCachedIcon, setCachedIcon]);
+  }, [selectedIcon, mode, getThumbnailUrl]);
 
-  const getThumbnail = useCallback(
-    async (iconName: string): Promise<string> => {
-      // Check both caches
-      if (cachedThumbs.has(iconName)) return cachedThumbs.get(iconName)!;
-      const globalCached = getCachedIcon(iconName);
-      if (globalCached) return globalCached;
-      
-      try {
-        // Load from pre-generated thumbnail (PNG)
-        const thumbnailUrl = `/thumbnails/${iconName.replace(/\.blp$/i, '')}.png`;
-        const thumbResponse = await fetch(thumbnailUrl);
-        if (!thumbResponse.ok) {
-          console.warn(`Thumbnail not found: ${thumbnailUrl}`);
-          return "";
-        }
-
-        // Convert blob to data URL for caching
-        const blob = await thumbResponse.blob();
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
-
-        setCachedThumbs((prev) => new Map(prev).set(iconName, dataUrl));
-        setCachedIcon(iconName, dataUrl);
-        return dataUrl;
-      } catch (err) {
-        console.error(`Failed to load thumbnail for ${iconName}:`, err);
-        return "";
-      }
-    },
-    [cachedThumbs, getCachedIcon, setCachedIcon]
-  );
+  const regenerateThumbnails = async () => {
+    setThumbRebuilding(true);
+    setThumbStatus('Regenerating thumbnails...');
+    try {
+      const res = await fetch('/api/generate-thumbnails', { method: 'POST' });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || `Server returned ${res.status}`);
+      const generated = result.generated ?? 0;
+      const failed = result.failed ?? 0;
+      setThumbStatus(`Thumbnails rebuilt (${generated} generated, ${failed} failed)`);
+      setThumbCacheBuster(Date.now());
+    } catch (err: any) {
+      setThumbStatus(`Thumbnail rebuild failed: ${err.message}`);
+    } finally {
+      setThumbRebuilding(false);
+    }
+  };
 
   const handleDBCImport = async (file: File) => {
     setDBCLoading(true);
@@ -247,7 +243,7 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
       const existingNames = new Set<string>(spellIcons.map((r: any) => r.iconPath.toLowerCase()));
       setDBCCompare({ existing: existingNames, new: new Set(importedIcons.map((i: any) => i.name.toLowerCase())) });
       
-      // Find unmapped icons (icons in custom folder but not in DBC)
+      // Find unmapped icons (icons in public folder but not in DBC)
       const unmapped = icons.filter(icon => !existingNames.has(icon.toLowerCase()));
       setUnmappedIcons(unmapped);
       
@@ -256,8 +252,6 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
       setNamingPatterns(patterns);
       
       setError(null);
-      setDBCImported(true);
-      setTimeout(() => setDBCImported(false), 3000);
     } catch (err) {
       setError(`Failed to parse DBC: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -433,7 +427,42 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
     }
   };
 
-  const filteredIcons = icons.filter((icon) => icon.toLowerCase().includes(searchTerm.toLowerCase())).sort();
+  const PAGE_SIZE = 200;
+
+  const filteredIcons = useMemo(
+    () => {
+      const term = searchTerm.trim().toLowerCase();
+      const shouldShowInitialEmpty = !term && quickFilter === "all";
+      if (shouldShowInitialEmpty) return [];
+
+      return icons
+        .filter((icon) => {
+          const matchesSearch = !term || icon.toLowerCase().includes(term);
+          if (!matchesSearch) return false;
+          if (quickFilter === "all") return true;
+          return getIconQuickBucket(icon) === quickFilter;
+        })
+        .sort();
+    },
+    [icons, quickFilter, searchTerm]
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredIcons.length / PAGE_SIZE));
+  const pagedIcons = useMemo(() => {
+    const page = Math.min(currentPage, totalPages);
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredIcons.slice(start, start + PAGE_SIZE);
+  }, [filteredIcons, currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, quickFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const extractNamingPatterns = (names: string[]): string[] => {
     const patterns = new Map<string, number>();
@@ -484,17 +513,17 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
     const mergedRecords = [...existingDBC, ...newRecords];
     const dbcContent = generateSpellIconDBC(mergedRecords);
     
-    // Save to custom_dbc folder instead of downloading
+    // Save to file for manual export
     downloadFile(dbcContent, "SpellIcon_Custom.dbc", "application/octet-stream");
     
-    const customDbcPath = config?.paths.custom.dbc || 'custom-dbc';
-    const customIconPath = config?.paths.custom.icons || 'custom-icon';
+    const dbcPath = config?.paths.base.dbc || 'dbc';
+    const iconPath = config?.paths.base.icons || 'icon';
     alert(
       `✓ Added ${selectedUnmapped.size} new icons to DBC!\n\n` +
       `Total icons in new DBC: ${mergedRecords.length}\n` +
       `New IDs: ${maxId + 1} - ${maxId + selectedUnmapped.size}\n\n` +
       `File saved as: SpellIcon_Custom.dbc\n` +
-      `Copy both ${customDbcPath}/ and ${customIconPath}/ folders to your WoW directory.`
+      `Copy ${dbcPath}/ to your client DBFilesClient and ${iconPath}/ to Interface/Icons.`
     );
     
     // Update state to reflect new DBC
@@ -506,8 +535,6 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
   return (
     <div style={{ padding: "16px", color: textColor }}>
       <h2 style={{ textAlign: "left", color: textColor }}>Spell Icon Editor</h2>
-      
-      <SettingsPanel textColor={textColor} contentBoxColor={contentBoxColor} />
       
       <div style={{ marginBottom: "20px", display: "flex", gap: "8px" }}>
         <button
@@ -522,7 +549,7 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
             fontWeight: "bold",
           }}
         >
-          Browse Icons (Custom)
+          Browse Icons
         </button>
         <button
           onClick={() => setMode("create")}
@@ -549,14 +576,12 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
       {mode === "browse" && (
         <div>
           <h3 style={{ textAlign: "left" }}>Spell Icons ({filteredIcons.length})</h3>
-          <p style={{ fontSize: "14px", color: "#666" }}>
-            Listing icons from the custom folder manifest.
-          </p>
+          <p style={{ fontSize: "14px", color: "#666" }}>Search or choose a class/profession filter to load icons.</p>
 
           <div style={{ marginBottom: "12px" }}>
             <input
               type="text"
-              placeholder="Search icons..."
+              placeholder="Search icons (name/spec/profession)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{
@@ -569,6 +594,144 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
             />
           </div>
 
+          <div style={{ marginBottom: "12px", display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
+            <button
+              onClick={() => setQuickFilter("all")}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "16px",
+                border: "1px solid #cbd5e1",
+                backgroundColor: quickFilter === "all" ? "#2563eb" : "#fff",
+                color: quickFilter === "all" ? "#fff" : "#1e293b",
+                cursor: "pointer",
+                fontSize: "12px",
+              }}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setQuickFilter("misc")}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "16px",
+                border: "1px solid #cbd5e1",
+                backgroundColor: quickFilter === "misc" ? "#2563eb" : "#fff",
+                color: quickFilter === "misc" ? "#fff" : "#1e293b",
+                cursor: "pointer",
+                fontSize: "12px",
+              }}
+            >
+              Misc
+            </button>
+
+            <select
+              value={CLASS_FILTERS.some((cls) => cls.key === quickFilter) ? quickFilter : ""}
+              onChange={(e) => {
+                const value = e.target.value as ClassKey | "";
+                setQuickFilter(value || "all");
+              }}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontSize: "12px",
+                minWidth: "180px",
+              }}
+            >
+              <option value="">Class: Any</option>
+              {CLASS_FILTERS.map((cls) => (
+                <option key={cls.key} value={cls.key}>
+                  {cls.icon} {cls.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={PROF_FILTERS.some((prof) => prof.key === quickFilter) ? quickFilter : ""}
+              onChange={(e) => {
+                const value = e.target.value as ProfessionKey | "";
+                setQuickFilter(value || "all");
+              }}
+              style={{
+                padding: "6px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontSize: "12px",
+                minWidth: "200px",
+              }}
+            >
+              <option value="">Profession: Any</option>
+              {PROF_FILTERS.map((prof) => (
+                <option key={prof.key} value={prof.key}>
+                  {prof.icon} {prof.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: "12px", display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              onClick={regenerateThumbnails}
+              disabled={thumbRebuilding}
+              style={{
+                padding: "8px 12px",
+                backgroundColor: thumbRebuilding ? "#cbd5e1" : "#0ea5e9",
+                color: "#fff",
+                border: "none",
+                borderRadius: "4px",
+                cursor: thumbRebuilding ? "not-allowed" : "pointer",
+                fontSize: "13px",
+                fontWeight: "bold",
+              }}
+            >
+              {thumbRebuilding ? "Rebuilding..." : "Regenerate Thumbnails"}
+            </button>
+            {thumbStatus && (
+              <span style={{ fontSize: "12px", color: "#334155" }}>{thumbStatus}</span>
+            )}
+          </div>
+
+          {filteredIcons.length > 0 && (
+            <div style={{ marginBottom: "8px", padding: "8px 12px", border: "1px solid #eee", borderRadius: "4px", fontSize: "12px", color: "#64748b", display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#fff" }}>
+              <span>
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, filteredIcons.length)} of {filteredIcons.length}
+              </span>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  style={{
+                    padding: "4px 8px",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "4px",
+                    backgroundColor: currentPage <= 1 ? "#f1f5f9" : "#fff",
+                    color: "#334155",
+                    cursor: currentPage <= 1 ? "not-allowed" : "pointer",
+                    fontSize: "12px",
+                  }}
+                >
+                  Prev
+                </button>
+                <span>Page {currentPage}/{totalPages}</span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  style={{
+                    padding: "4px 8px",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: "4px",
+                    backgroundColor: currentPage >= totalPages ? "#f1f5f9" : "#fff",
+                    color: "#334155",
+                    cursor: currentPage >= totalPages ? "not-allowed" : "pointer",
+                    fontSize: "12px",
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+
           <div
             style={{
               border: "1px solid #ddd",
@@ -580,10 +743,12 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
           >
             {filteredIcons.length === 0 ? (
               <div style={{ padding: "20px", textAlign: "center", color: "#999" }}>
-                No icons found.
+                {!searchTerm.trim() && quickFilter === "all"
+                  ? "Start typing or click a class/profession/misc filter."
+                  : "No icons found."}
               </div>
             ) : (
-              filteredIcons.map((iconName) => (
+              pagedIcons.map((iconName) => (
                 <div
                   key={iconName}
                   style={{
@@ -604,11 +769,11 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
                       flexShrink: 0,
                     }}
                   >
-                    <IconThumbnail
-                      iconName={iconName}
-                      isSelected={false}
-                      onSelect={() => {}}
-                      getThumbnail={getThumbnail}
+                    <img
+                      src={getThumbnailUrl(iconName)}
+                      alt={iconName}
+                      loading="lazy"
+                      style={{ width: "64px", height: "64px", objectFit: "cover" }}
                     />
                   </div>
                   <div style={{ flex: 1 }}>
@@ -689,19 +854,6 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
               </div>
             )}
 
-            {dbcImported && !dbcLoading && (
-              <div style={{
-                padding: "8px 12px",
-                backgroundColor: "#d4edda",
-                color: "#155724",
-                borderRadius: "4px",
-                marginBottom: "12px",
-                fontSize: "14px",
-              }}>
-                ✓ Import OK - DBC verified and cached
-              </div>
-            )}
-
             {existingDBC.length > 0 && (
               <div style={{ fontSize: "14px", color: "#333", marginTop: "12px" }}>
                 <strong>{existingDBC.length}</strong> icons loaded from DBC
@@ -747,7 +899,7 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
             marginBottom: "20px",
             backgroundColor: "#f5f5f5",
           }}>
-            <h4>Step 2: Import Custom Icons</h4>
+            <h4>Step 2: Import Icons</h4>
             {namingPatterns.length > 0 && (
               <div style={{ marginBottom: "16px", padding: "12px", backgroundColor: "#fff", borderRadius: "4px" }}>
                 <p style={{ fontSize: "13px", color: "#666", margin: "0 0 8px 0", fontWeight: "500" }}>
@@ -949,71 +1101,6 @@ const SpellIconEditor: React.FC<Props> = ({ textColor, contentBoxColor }) => {
         </>
       )}
     </div>
-  );
-};
-
-const IconThumbnail: React.FC<{
-  iconName: string;
-  isSelected: boolean;
-  onSelect: () => void;
-  getThumbnail: (name: string) => Promise<string>;
-}> = ({ iconName, isSelected, onSelect, getThumbnail }) => {
-  const [thumbSrc, setThumbSrc] = useState<string>("");
-  const [loading, setLoading] = useState(false);
-  const ref = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      async (entries) => {
-        if (entries[0].isIntersecting && !thumbSrc && !loading) {
-          setLoading(true);
-          const src = await getThumbnail(iconName);
-          setThumbSrc(src);
-          setLoading(false);
-        }
-      },
-      { rootMargin: "50px" }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => { if (ref.current) observer.unobserve(ref.current); };
-  }, [getThumbnail, iconName, thumbSrc, loading]);
-
-  return (
-    <button
-      ref={ref}
-      onClick={onSelect}
-      style={{
-        padding: "0",
-        border: isSelected ? "3px solid #007bff" : "1px solid #ccc",
-        borderRadius: "4px",
-        cursor: "pointer",
-        backgroundColor: isSelected ? "#e7f3ff" : "#fff",
-        width: "64px",
-        height: "64px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-        transition: "all 0.2s",
-      }}
-      title={iconName}
-      onMouseEnter={(e) => {
-        const target = e.currentTarget as HTMLElement;
-        target.style.transform = "scale(1.1)";
-        target.style.zIndex = "10";
-      }}
-      onMouseLeave={(e) => {
-        const target = e.currentTarget as HTMLElement;
-        target.style.transform = "scale(1)";
-        target.style.zIndex = "1";
-      }}
-    >
-      {thumbSrc ? (
-        <img src={thumbSrc} alt={iconName} style={{ maxWidth: "100%", maxHeight: "100%" }} />
-      ) : (
-        <div style={{ color: "#999", fontSize: "12px" }}>...</div>
-      )}
-    </button>
   );
 };
 

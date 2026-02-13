@@ -9,13 +9,11 @@ After cloning, most folders are empty (just `.gitkeep` placeholders). Use the
 | Folder | Purpose | How to populate |
 |--------|---------|-----------------|
 | `dbc/` | Base DBC files from the WoW 3.3.5 client | Extract with DBC tools or copy from client data |
-| `custom-dbc/` | Modified DBC files (Talent.dbc, SpellIcon.dbc) | Created automatically when you save in the editor |
-| `icon/` | Base BLP icon files from the WoW client | Copy `Interface/Icons/*.blp` from client data |
-| `custom-icon/` | User-uploaded BLP icons | Upload through Spell Icon Editor UI |
+| `Icons/` | Base BLP icon files from the WoW client | Copy `Interface/Icons/*.blp` from client data |
 | `thumbnails/` | Auto-generated PNG previews of BLP icons | Generated automatically on server start |
 | `sprites/` | Auto-generated per-class sprite sheets | Generated automatically on server start |
-| `export/DBFilesClient/` | Exported DBC files ready for client patching | Created when you save talents or icons |
-| `export/Interface/` | Exported icon files ready for client patching | Created on export |
+| `../export/DBFilesClient/` | Edited DBC files ready for client patching | Created when you save DBC edits |
+| `../export/Interface/Icons/` | Exported icon files ready for client patching | Created on export |
 | `error-logs/` | Frontend/backend error logs | Created automatically by the server |
 
 ## Included Assets (tracked in git)
@@ -44,7 +42,7 @@ These files are created automatically by the server and do not need manual setup
 3. **Go to Settings** → click **Initialize Folders** to ensure all directories exist
 4. **Copy your WoW client data:**
    - DBC files → `public/dbc/`
-   - Icon BLPs → `public/icon/`
+   - Icon BLPs → `public/Icons/`
 5. The server auto-generates thumbnails, sprites, and manifests on startup
 
 ## File Formats
@@ -58,5 +56,4 @@ These files are created automatically by the server and do not need manual setup
 All large/binary/generated content is excluded via `.gitignore`.
 Directory structure is preserved with `.gitkeep` files so folders exist after clone.
 
-User-uploaded and user-modified files live in `custom-*` directories,
-keeping original game data separate and untouched.
+Edits and uploads are written to `export/` so the synced base files remain untouched.

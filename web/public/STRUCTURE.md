@@ -5,12 +5,9 @@
 ```
 public/
 ├── dbc/                          # Original WoW DBC files (read-only)
-├── Icons/                        # Original WoW game icons (read-only)
+├── Icons/                        # Original WoW game icons (read-only + uploads)
 │
-├── custom-dbc/                   # Edited DBC files (user modified)
-├── custom-icons/                 # New/edited icon files (user modified)
-│
-├── export/                       # Export outputs for MPQ patching
+├── ../export/                    # Export outputs for MPQ patching
 │   ├── Interface/
 │   │   └── Icons/               # Exported BLP icon files
 │   └── DBFilesClient/            # Exported DBC database files
@@ -23,59 +20,56 @@ public/
 ## File Types
 
 ### DBC Files (Database)
-- **Location**: `dbc/` (base), `custom-dbc/` (edited)
+- **Location**: `dbc/` (base sync from server)
 - **Format**: Raw DBC binary format
-- **Export Path**: `export/DBFilesClient/`
+- **Export Path**: `../export/DBFilesClient/`
 - **Use**: Place directly in client `DBFilesClient/` folder
 - **Examples**: `Spell.dbc`, `SpellIcon.dbc`, `Talent.dbc`
 
 ### Icon Files 
-- **Location**: `Icons/` (base), `custom-icons/` (new/edited)
+- **Location**: `Icons/` (base + uploads)
 - **Formats**: 
   - **Input**: PNG, JPG, BLP
   - **Output**: BLP (exported)
-- **Export Path**: `export/Interface/Icons/`
+- **Export Path**: `../export/Interface/Icons/`
 - **Use**: Place in client `Interface/Icons/` folder in MPQ patch
-- **Naming**: `Icon_<ID>.blp` where ID is numeric
+- **Naming**: Uploads are stored as `custom-<name>.blp` and exported as-is
 
 ## Workflow
 
 ### Adding New Icons
 1. Upload PNG/JPG in Spell Icon Editor
-2. Editor saves to `custom-icons/`
-3. When exporting, converts to BLP format
-4. BLP files output to `export/Interface/Icons/`
+2. Editor saves to `Icons/` with `custom-` prefix
+3. When exporting, copies `custom-*` icons
+4. BLP files output to `../export/Interface/Icons/`
 5. Pack `export/Interface/Icons/` into MPQ patch
 
 ### Editing DBC Files
-1. Upload modified DBC in Talent/Spell Editor
-2. Editor saves to `custom-dbc/`
-3. When exporting, copies raw DBC to `export/DBFilesClient/`
-4. Place `export/DBFilesClient/*` files in client `DBFilesClient/` folder
+1. Sync server DBCs into `dbc/`
+2. Edit via the DBC editors
+3. Edits are written to `export/DBFilesClient/`
+4. Place `../export/DBFilesClient/*` files in client `DBFilesClient/` folder
 
 ### Initial Setup
-1. Copy base files: Use SettingsPanel to copy `dbc/` → `custom-dbc/` and `Icons/` → `custom-icons/`
-2. Edit files in your preferred DBC/icon editor
+1. Sync server DBCs to `dbc/` via SettingsPanel
+2. Upload icons into `Icons/` via the Spell Icon Editor
 3. Export when ready to patch
 
 ## API Endpoints
 
 ### Copy Files (SettingsPanel - Initial Setup)
-- `POST /api/copy-files` - Copy base files to custom folders
-  - Body: `{ source, destination, type }`
-  - Response: Success status with file counts
+ - `POST /api/import-server-dbc` - Sync server DBCs into `public/dbc`
 
 ### Export Icons (SettingsPanel - Asset Export)
 - `POST /api/export-icons` - Copy and export custom icons
-  - Action: Reads from `custom-icons/`, copies to `export/Interface/Icons/`
-  - Renames to `.blp` extension (BLP conversion ready)
+  - Action: Reads `public/Icons/custom-*`, copies to `../export/Interface/Icons/`
   - Response: Count of exported files
   - UI: Orange button in Settings panel
-  - Example: `icon.png` → `icon.blp` in export/Interface/Icons/
+  - Example: `custom-foo.blp` → `custom-foo.blp` in ../export/Interface/Icons/
 
 ### Export DBCs (SettingsPanel - Asset Export)
-- `POST /api/export-dbc` - Copy custom DBCs to export folder
-  - Action: Reads from `custom-dbc/`, copies to `export/DBFilesClient/`
+- `POST /api/export-dbc` - Export edited DBCs from export folder
+  - Action: Reads from `../export/DBFilesClient/` (edited output)
   - Preserves original DBC file names
   - Response: Count of exported files with sizes
   - UI: Orange button in Settings panel
@@ -90,7 +84,7 @@ public/
 ## File Size Notes
 - **Icons folder**: Contains 45,000+ game icons (~300MB+)
 - **DBC folder**: Contains ~150 DBC files (~50MB)
-- Only files in `custom-*` folders need to be exported for patches
+- Only edited files in `export/` need to be packed for patches
 - Export folder structures match client folder layout (Interface/Icons, DBFilesClient)
 
 ## UI Components

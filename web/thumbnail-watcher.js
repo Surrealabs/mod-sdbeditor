@@ -7,7 +7,7 @@ import { BLPFile } from './src/lib/blpconverter.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const THUMBNAILS_DIR = path.join(PUBLIC_DIR, 'thumbnails');
-const CUSTOM_ICON_DIR = path.join(PUBLIC_DIR, 'custom-icon');
+const ICON_DIR = path.join(PUBLIC_DIR, 'Icons');
 
 let watcherActive = false;
 let processingQueue = new Set();
@@ -63,18 +63,18 @@ export function startThumbnailWatcher() {
 
   ensureThumbnailsDir();
 
-  if (!fs.existsSync(CUSTOM_ICON_DIR)) {
-    console.log(`Custom icon directory not found: ${CUSTOM_ICON_DIR}`);
+  if (!fs.existsSync(ICON_DIR)) {
+    console.log(`Icon directory not found: ${ICON_DIR}`);
     return;
   }
 
-  console.log(`Starting thumbnail watcher on: ${CUSTOM_ICON_DIR}`);
+  console.log(`Starting thumbnail watcher on: ${ICON_DIR}`);
   
   // Watch for new BLP files
-  const watcher = fs.watch(CUSTOM_ICON_DIR, { recursive: false }, async (eventType, filename) => {
+  const watcher = fs.watch(ICON_DIR, { recursive: false }, async (eventType, filename) => {
     if (!filename || !filename.toLowerCase().endsWith('.blp')) return;
     
-    const filePath = path.join(CUSTOM_ICON_DIR, filename);
+    const filePath = path.join(ICON_DIR, filename);
     
     // Give the file a moment to finish writing
     setTimeout(async () => {

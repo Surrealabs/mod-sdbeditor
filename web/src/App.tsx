@@ -5,8 +5,12 @@ import './App.css';
 import TalentBuilder from './components/TalentBuilder';
 import TalentEditor from './components/TalentEditor';
 import SpellIconEditor from './components/SpellIconEditor';
+import SpellEditor from './components/SpellEditor';
 import ServerStarter from './components/ServerStarter';
 import AccountControl from './components/AccountControl';
+import DBCEditor from './components/DBCEditor';
+import CharStartOutfitEditor from './components/CharStartOutfitEditor';
+// TalentLayoutEditor removed — unified into TalentEditor
 
 function FolderInitializer({ fileBase, contentBoxColor }: { fileBase: string; contentBoxColor: string }) {
   const [status, setStatus] = useState<{ dir: string; exists: boolean }[] | null>(null);
@@ -81,7 +85,7 @@ function FolderInitializer({ fileBase, contentBoxColor }: { fileBase: string; co
 }
 
 function App() {
-  const [tab, setTab] = useState<'armory' | 'talentbuilder' | 'talenteditor' | 'spellicon' | 'serverstarter' | 'accountcontrol' | 'settings'>('armory');
+  const [tab, setTab] = useState<'armory' | 'talentbuilder' | 'talenteditor' | 'spellicon' | 'loadingscreen' | 'itemeditor' | 'spelleditor' | 'serverstarter' | 'accountcontrol' | 'settings' | 'dbceditor' | 'startingequip' | 'account' | 'shop'>('talentbuilder');
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('starterToken'));
   const [gmLevel, setGmLevel] = useState<number>(() => Number(localStorage.getItem('starterGmLevel') || 0));
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -267,8 +271,8 @@ function App() {
   }, [fileBase, starterBase]);
 
   useEffect(() => {
-    if (gmLevel <= 0 && (tab === 'serverstarter' || tab === 'spellicon' || tab === 'talenteditor' || tab === 'settings')) {
-      setTab('armory');
+    if (gmLevel <= 0 && (tab === 'serverstarter' || tab === 'spellicon' || tab === 'talenteditor' || tab === 'settings' || tab === 'dbceditor' || tab === 'startingequip' || tab === 'loadingscreen' || tab === 'itemeditor' || tab === 'spelleditor' || tab === 'accountcontrol')) {
+      setTab('talentbuilder');
     }
   }, [gmLevel, tab]);
 
@@ -792,128 +796,115 @@ function App() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #ccc', marginBottom: 0, paddingLeft: 24 }}>
-        <button
-          style={{
-            padding: '8px 16px',
-            border: 'none',
-            borderBottom: tab === 'armory' ? '2px solid #007bff' : '2px solid transparent',
-            background: 'none',
-            cursor: 'pointer',
-            fontWeight: tab === 'armory' ? 'bold' : 'normal',
-            color: textColor,
-          }}
-          onClick={() => setTab('armory')}
-        >
-          Armory
-        </button>
-        <button
-          style={{
-            padding: '8px 16px',
-            border: 'none',
-            borderBottom: tab === 'talentbuilder' ? '2px solid #007bff' : '2px solid transparent',
-            background: 'none',
-            cursor: 'pointer',
-            fontWeight: tab === 'talentbuilder' ? 'bold' : 'normal',
-            color: textColor,
-          }}
-          onClick={() => setTab('talentbuilder')}
-        >
-          Talent Builder
-        </button>
-        {gmLevel > 0 && (
+      <div style={{ borderBottom: '1px solid #ccc', marginBottom: 0, paddingLeft: 24 }}>
+        {/* Main Editor Tabs */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0 }}>
+          {[
+            { id: 'talentbuilder' as const, label: 'Spec Builder', gm: false },
+            { id: 'armory' as const, label: 'Armory', gm: false },
+            { id: 'account' as const, label: 'Account', gm: false },
+            { id: 'shop' as const, label: 'Shop', gm: false },
+            { id: 'itemeditor' as const, label: 'Item Editor', gm: true },
+            { id: 'spelleditor' as const, label: 'Spell Editor', gm: true },
+            { id: 'talenteditor' as const, label: 'Talent Editor', gm: true },
+          ].filter(t => !t.gm || gmLevel > 0).map(t => (
+            <button
+              key={t.id}
+              style={{
+                padding: '8px 14px',
+                border: 'none',
+                borderBottom: tab === t.id ? '2px solid #007bff' : '2px solid transparent',
+                background: 'none',
+                cursor: 'pointer',
+                fontWeight: tab === t.id ? 'bold' : 'normal',
+                color: textColor,
+                fontSize: '13px',
+              }}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+
+          {/* Admin tools dropdown */}
+          {gmLevel > 0 && (
+            <div style={{ position: 'relative', marginLeft: 8 }}>
+              <details style={{ display: 'inline' }}>
+                <summary
+                  style={{
+                    padding: '8px 14px',
+                    cursor: 'pointer',
+                    color: ['dbceditor','startingequip','serverstarter','accountcontrol','settings','spellicon','loadingscreen'].includes(tab) ? '#007bff' : textColor,
+                    fontWeight: ['dbceditor','startingequip','serverstarter','accountcontrol','settings','spellicon','loadingscreen'].includes(tab) ? 'bold' : 'normal',
+                    fontSize: '13px',
+                    listStyle: 'none',
+                    userSelect: 'none',
+                    borderBottom: ['dbceditor','startingequip','serverstarter','accountcontrol','settings','spellicon','loadingscreen'].includes(tab) ? '2px solid #007bff' : '2px solid transparent',
+                  }}
+                >
+                  Tools ▾
+                </summary>
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  background: contentBoxColor || '#fff',
+                  border: '1px solid #ccc',
+                  borderRadius: 4,
+                  zIndex: 100,
+                  minWidth: 180,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                }}>
+                  {[
+                    { id: 'dbceditor' as const, label: 'DBC Editor' },
+                    { id: 'startingequip' as const, label: 'Starting Equipment' },
+                    { id: 'spellicon' as const, label: 'Icon Editor' },
+                    { id: 'loadingscreen' as const, label: 'Loading Screens' },
+                    { id: 'serverstarter' as const, label: 'Server Starter' },
+                    { id: 'accountcontrol' as const, label: 'Account Control' },
+                    { id: 'settings' as const, label: 'Settings' },
+                  ].map(t => (
+                    <button
+                      key={t.id}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: '8px 16px',
+                        border: 'none',
+                        background: tab === t.id ? '#007bff' : 'transparent',
+                        color: tab === t.id ? '#fff' : textColor,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        fontSize: '13px',
+                      }}
+                      onClick={(e) => {
+                        setTab(t.id);
+                        (e.currentTarget.closest('details') as HTMLDetailsElement)?.removeAttribute('open');
+                      }}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
+
           <button
             style={{
-              padding: '8px 16px',
+              marginLeft: 'auto',
+              padding: '8px 14px',
               border: 'none',
-              borderBottom: tab === 'talenteditor' ? '2px solid #007bff' : '2px solid transparent',
               background: 'none',
               cursor: 'pointer',
-              fontWeight: tab === 'talenteditor' ? 'bold' : 'normal',
-              color: textColor,
+              color: '#c00',
+              fontSize: '13px',
             }}
-            onClick={() => setTab('talenteditor')}
+            onClick={onLogout}
           >
-            Talent Editor
+            Logout
           </button>
-        )}
-        {gmLevel > 0 && (
-          <button
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderBottom: tab === 'spellicon' ? '2px solid #007bff' : '2px solid transparent',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: tab === 'spellicon' ? 'bold' : 'normal',
-              color: textColor,
-            }}
-            onClick={() => setTab('spellicon')}
-          >
-            Spell Icon Editor
-          </button>
-        )}
-        {gmLevel > 0 && (
-          <button
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderBottom: tab === 'serverstarter' ? '2px solid #007bff' : '2px solid transparent',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: tab === 'serverstarter' ? 'bold' : 'normal',
-              color: textColor,
-            }}
-            onClick={() => setTab('serverstarter')}
-          >
-            Server Starter
-          </button>
-        )}
-        {gmLevel > 0 && (
-          <button
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderBottom: tab === 'accountcontrol' ? '2px solid #007bff' : '2px solid transparent',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: tab === 'accountcontrol' ? 'bold' : 'normal',
-              color: textColor,
-            }}
-            onClick={() => setTab('accountcontrol')}
-          >
-            Account Control
-          </button>
-        )}
-        {gmLevel > 0 && (
-          <button
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderBottom: tab === 'settings' ? '2px solid #007bff' : '2px solid transparent',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: tab === 'settings' ? 'bold' : 'normal',
-              color: textColor,
-            }}
-            onClick={() => setTab('settings')}
-          >
-            Settings
-          </button>
-        )}
-        <button
-          style={{
-            marginLeft: 'auto',
-            padding: '8px 16px',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            color: '#c00',
-          }}
-          onClick={onLogout}
-        >
-          Logout
-        </button>
+        </div>
       </div>
 
       {/* Tab Content */}
@@ -929,7 +920,25 @@ function App() {
             </div>
           )
         )}
-        {tab === 'talentbuilder' && <TalentBuilder textColor={textColor} contentBoxColor={contentBoxColor} />}
+        {tab === 'talentbuilder' && <TalentBuilder textColor={textColor} contentBoxColor={contentBoxColor} token={token} gmLevel={gmLevel} />}
+        {tab === 'account' && (
+          <div style={{ padding: 24, color: textColor }}>
+            <h2 style={{ marginTop: 0 }}>My Account</h2>
+            <p style={{ color: '#999' }}>View and manage your account details, characters, and preferences.</p>
+            <div style={{ padding: 40, border: '2px dashed #555', borderRadius: 8, textAlign: 'center', color: '#666' }}>
+              Coming soon — account management dashboard.
+            </div>
+          </div>
+        )}
+        {tab === 'shop' && (
+          <div style={{ padding: 24, color: textColor }}>
+            <h2 style={{ marginTop: 0 }}>Shop</h2>
+            <p style={{ color: '#999' }}>Browse and purchase cosmetics, mounts, pets, and other items.</p>
+            <div style={{ padding: 40, border: '2px dashed #555', borderRadius: 8, textAlign: 'center', color: '#666' }}>
+              Coming soon — in-game shop.
+            </div>
+          </div>
+        )}
         {tab === 'talenteditor' && (
           gmLevel > 0 ? (
             <TalentEditor textColor={textColor} contentBoxColor={contentBoxColor} />
@@ -953,6 +962,58 @@ function App() {
         )}
         {tab === 'accountcontrol' && (
           <AccountControl token={token} baseUrl={starterBase} textColor={textColor} contentBoxColor={contentBoxColor} />
+        )}
+        {tab === 'dbceditor' && (
+          gmLevel > 0 ? (
+            <DBCEditor textColor={textColor} contentBoxColor={contentBoxColor} />
+          ) : (
+            <div style={{ padding: 12, color: textColor }}>
+              You don't have permission to edit DBC files. Contact admin.
+            </div>
+          )
+        )}
+        {tab === 'startingequip' && (
+          gmLevel > 0 ? (
+            <CharStartOutfitEditor textColor={textColor} contentBoxColor={contentBoxColor} />
+          ) : (
+            <div style={{ padding: 12, color: textColor }}>
+              You don't have permission to edit starting equipment. Contact admin.
+            </div>
+          )
+        )}
+
+        {tab === 'loadingscreen' && (
+          gmLevel > 0 ? (
+            <div style={{ padding: 24, color: textColor }}>
+              <h2 style={{ marginTop: 0 }}>Loading Screen Editor</h2>
+              <p style={{ color: '#999' }}>Edit and manage custom loading screens for your WoW client.</p>
+              <div style={{ padding: 40, border: '2px dashed #555', borderRadius: 8, textAlign: 'center', color: '#666' }}>
+                Coming soon — drag and drop loading screen images here.
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: 12, color: textColor }}>Contact admin to access this editor.</div>
+          )
+        )}
+        {tab === 'itemeditor' && (
+          gmLevel > 0 ? (
+            <div style={{ padding: 24, color: textColor }}>
+              <h2 style={{ marginTop: 0 }}>Item Editor</h2>
+              <p style={{ color: '#999' }}>Create and modify custom items, set stats, models, and properties.</p>
+              <div style={{ padding: 40, border: '2px dashed #555', borderRadius: 8, textAlign: 'center', color: '#666' }}>
+                Coming soon — item creation and editing tools.
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: 12, color: textColor }}>Contact admin to access this editor.</div>
+          )
+        )}
+        {tab === 'spelleditor' && (
+          gmLevel > 0 ? (
+            <SpellEditor textColor={textColor} contentBoxColor={contentBoxColor} />
+          ) : (
+            <div style={{ padding: 12, color: textColor }}>Contact admin to access this editor.</div>
+          )
         )}
         {tab === 'settings' && (
           gmLevel > 0 ? (
@@ -1284,8 +1345,8 @@ function App() {
               <div style={{ marginBottom: 24, padding: 16, background: contentBoxColor, borderRadius: 8 }}>
                 <h4 style={{ marginTop: 0 }}>Initialize Folders</h4>
                 <p style={{ fontSize: 13, color: '#aaa', marginBottom: 12 }}>
-                  Create all required public directories (dbc, custom-dbc, icon, custom-icon,
-                  thumbnails, sprites, export, error-logs). Existing folders are left untouched.
+                  Create all required public directories (dbc, Icons, thumbnails, sprites, export,
+                  error-logs). Existing folders are left untouched.
                 </p>
                 <FolderInitializer fileBase={fileBase} contentBoxColor={contentBoxColor} />
               </div>

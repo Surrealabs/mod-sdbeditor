@@ -74,9 +74,9 @@ export async function initializeApp(config: AppConfig): Promise<void> {
     
     console.log('✓ Application initialized');
     console.log(`Setup instructions:`);
-    console.log(`1. Copy base DBC files from /${config.paths.base.dbc}/ to /${config.paths.custom.dbc}/`);
-    console.log(`2. Copy base icons from /${config.paths.base.icons}/ to /${config.paths.custom.icons}/`);
-    console.log(`Custom folders will contain both base (backup) and new icons you create`);
+    console.log(`1. Sync server DBC files into /${config.paths.base.dbc}/`);
+    console.log(`2. Upload icons into /${config.paths.base.icons}/ as needed`);
+    console.log(`Edits are written to export/DBFilesClient and export/Interface/Icons`);
   } catch (error) {
     console.error('Failed to initialize app:', error);
   }
@@ -87,18 +87,18 @@ function getDefaultConfig(): AppConfig {
     paths: {
       base: {
         dbc: 'dbc',
-        icons: 'Icon',
-        description: 'Default WoW 3.3.5 WotLK files (read-only reference)',
+        icons: 'Icons',
+        description: 'Client DBC and icon sources (synced/uploaded into public)',
       },
       custom: {
         dbc: 'custom-dbc',
         icons: 'custom-icon',
-        description: 'Custom user-modified files for server integration',
+        description: 'Deprecated (no longer used)',
       },
     },
     settings: {
-      activeDBCSource: 'custom',
-      activeIconSource: 'custom',
+      activeDBCSource: 'base',
+      activeIconSource: 'base',
       allowBaseModification: false,
       initialized: false,
     },
@@ -111,9 +111,9 @@ export function saveConfig(config: AppConfig): void {
 }
 
 export function getActiveDBCPath(config: AppConfig): string {
-  return `/${config.paths.custom.dbc}`;
+  return `/${config.paths.base.dbc}`;
 }
 
 export function getActiveIconPath(config: AppConfig): string {
-  return `/${config.paths.custom.icons}`;
+  return `/${config.paths.base.icons}`;
 }

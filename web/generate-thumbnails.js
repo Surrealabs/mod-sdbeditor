@@ -9,7 +9,7 @@ import { BLPFile } from './src/lib/blpconverter.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const THUMBNAILS_DIR = path.join(PUBLIC_DIR, 'thumbnails');
-const CUSTOM_ICON_DIR = path.join(PUBLIC_DIR, 'custom-icon');
+const ICON_DIR = path.join(PUBLIC_DIR, 'Icons');
 
 async function generateThumbnails() {
   console.log('Starting thumbnail generation...');
@@ -20,19 +20,19 @@ async function generateThumbnails() {
     console.log('Created thumbnails directory');
   }
 
-  if (!fs.existsSync(CUSTOM_ICON_DIR)) {
-    console.error(`Custom icon directory not found: ${CUSTOM_ICON_DIR}`);
+  if (!fs.existsSync(ICON_DIR)) {
+    console.error(`Icon directory not found: ${ICON_DIR}`);
     process.exit(1);
   }
 
-  const files = fs.readdirSync(CUSTOM_ICON_DIR).filter(f => f.toLowerCase().endsWith('.blp'));
+  const files = fs.readdirSync(ICON_DIR).filter(f => f.toLowerCase().endsWith('.blp'));
   console.log(`Found ${files.length} BLP files to process`);
 
   let generated = 0, skipped = 0, failed = 0;
 
   for (const file of files) {
     try {
-      const iconPath = path.join(CUSTOM_ICON_DIR, file);
+      const iconPath = path.join(ICON_DIR, file);
       const thumbnailPath = path.join(THUMBNAILS_DIR, file.replace(/\.blp$/i, '.png'));
       
       // Skip if thumbnail already exists

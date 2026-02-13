@@ -17,7 +17,7 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
   const [showSettings, setShowSettings] = useState(false);
   const [dbcCopied, setDbcCopied] = useState(false);
   const [iconsCopied, setIconsCopied] = useState(false);
-  const [copying, setCopying] = useState<'dbc' | 'icons' | null>(null);
+  const [copying, setCopying] = useState<'dbc' | null>(null);
   const [exporting, setExporting] = useState<'icons' | 'dbc' | null>(null);
   const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
 
@@ -52,23 +52,18 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
     }
   };
 
-  const copyDbcFiles = async () => {
+  const syncDbcFiles = async () => {
     if (!config) return;
     setCopying('dbc');
     try {
-      const response = await fetch('/api/copy-files', {
+      const response = await fetch('/api/import-server-dbc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source: config.paths.base.dbc,
-          destination: config.paths.custom.dbc,
-          type: 'dbc',
-        }),
       });
 
       if (response.ok) {
         setDbcCopied(true);
-        alert('✓ DBC files copied successfully!');
+        alert('✓ DBC files synced from server successfully!');
       } else {
         const error = await response.json();
         alert(`Error: ${error.error}`);
@@ -81,34 +76,7 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
     }
   };
 
-  const copyIconFiles = async () => {
-    if (!config) return;
-    setCopying('icons');
-    try {
-      const response = await fetch('/api/copy-files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source: config.paths.base.icons,
-          destination: config.paths.custom.icons,
-          type: 'icons',
-        }),
-      });
-
-      if (response.ok) {
-        setIconsCopied(true);
-        alert('✓ Icon files copied successfully!');
-      } else {
-        const error = await response.json();
-        alert(`Error: ${error.error}`);
-      }
-    } catch (error) {
-      alert('Backend server not running. Make sure to run: npm run server');
-    } finally {
-      setCopying(null);
-      checkFilesExist();
-    }
-  };
+  const allReady = dbcCopied;
 
   const exportIcons = async () => {
     setExporting('icons');
@@ -158,8 +126,6 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
 
   if (!config) return null;
 
-  const allReady = dbcCopied && iconsCopied;
-
   return (
     <div style={{ marginBottom: '20px' }}>
       {!allReady && (
@@ -173,24 +139,24 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
         }}>
           <h3 style={{ marginTop: 0, textAlign: 'left', color: textColor }}>📋 Initial Setup Required</h3>
           <p style={{ fontSize: '14px', opacity: 0.8, marginBottom: '16px' }}>
-            Copy base files to custom folders to begin. You only need to do this once.
+            Sync server DBCs into the public folder. Icons are uploaded through the icon editor.
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {/* DBC Copy Button */}
+            {/* DBC Sync Button */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               {dbcCopied ? (
                 <>
                   <div style={{ fontSize: '24px' }}>✅</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', color: textColor }}>DBC Files Copied</div>
-                    <div style={{ fontSize: '12px', opacity: 0.7 }}>SpellIcon.dbc ready in {config.paths.custom.dbc}/</div>
+                    <div style={{ fontWeight: 'bold', color: textColor }}>DBC Files Synced</div>
+                    <div style={{ fontSize: '12px', opacity: 0.7 }}>DBC files ready in {config.paths.base.dbc}/</div>
                   </div>
                 </>
               ) : (
                 <>
                   <button
-                    onClick={copyDbcFiles}
+                    onClick={syncDbcFiles}
                     disabled={copying === 'dbc'}
                     style={{
                       padding: '10px 16px',
@@ -205,50 +171,22 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
                       minWidth: '160px',
                     }}
                   >
-                    {copying === 'dbc' ? 'Copying...' : 'Copy DBC Files'}
+                    {copying === 'dbc' ? 'Syncing...' : 'Sync DBC Files'}
                   </button>
                   <div style={{ flex: 1, fontSize: '12px', opacity: 0.7 }}>
-                    From: {config.paths.base.dbc}
+                    Source: server data folder
                   </div>
                 </>
               )}
             </div>
 
-            {/* Icons Copy Button */}
+            {/* Icons Status */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {iconsCopied ? (
-                <>
-                  <div style={{ fontSize: '24px' }}>✅</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', color: textColor }}>Icon Files Copied</div>
-                    <div style={{ fontSize: '12px', opacity: 0.7 }}>Base icons ready in {config.paths.custom.icons}/</div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={copyIconFiles}
-                    disabled={copying === 'icons'}
-                    style={{
-                      padding: '10px 16px',
-                      backgroundColor: '#9c27b0',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: copying === 'icons' ? 'not-allowed' : 'pointer',
-                      fontSize: '14px',
-                      fontWeight: 'bold',
-                      opacity: copying === 'icons' ? 0.6 : 1,
-                      minWidth: '160px',
-                    }}
-                  >
-                    {copying === 'icons' ? 'Copying...' : 'Copy Interface Files'}
-                  </button>
-                  <div style={{ flex: 1, fontSize: '12px', opacity: 0.7 }}>
-                    From: {config.paths.base.icons}
-                  </div>
-                </>
-              )}
+              <div style={{ fontSize: '24px' }}>{iconsCopied ? '✅' : '📁'}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 'bold', color: textColor }}>Icons Folder</div>
+                <div style={{ fontSize: '12px', opacity: 0.7 }}>Uploads go to {config.paths.base.icons}/ (custom-* names export)</div>
+              </div>
             </div>
           </div>
         </div>
@@ -298,79 +236,21 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
 
               <div style={{ marginBottom: '16px' }}>
                 <h4 style={{ textAlign: 'left', fontSize: '14px', marginBottom: '8px', color: textColor }}>DBC Source:</h4>
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', color: textColor }}>
-                    <input
-                      type="radio"
-                      checked={config.settings.activeDBCSource === 'base'}
-                      onChange={() => {
-                        const newConfig = { ...config };
-                        newConfig.settings.activeDBCSource = 'base';
-                        setConfig(newConfig);
-                        saveConfig(newConfig);
-                      }}
-                      style={{ marginRight: '6px' }}
-                    />
-                    <span>Base WotLK (Read-Only)</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', color: textColor }}>
-                    <input
-                      type="radio"
-                      checked={config.settings.activeDBCSource === 'custom'}
-                      onChange={() => {
-                        const newConfig = { ...config };
-                        newConfig.settings.activeDBCSource = 'custom';
-                        setConfig(newConfig);
-                        saveConfig(newConfig);
-                      }}
-                      style={{ marginRight: '6px' }}
-                    />
-                    <span>Custom (Server)</span>
-                  </label>
-                </div>
                 <div style={{ fontSize: '12px', opacity: 0.7, paddingLeft: '4px' }}>
-                  📁 {config.settings.activeDBCSource === 'base'
-                    ? config.paths.base.dbc
-                    : config.paths.custom.dbc}
+                  📁 {config.paths.base.dbc} (synced from server)
+                </div>
+                <div style={{ fontSize: '12px', opacity: 0.7, paddingLeft: '4px', marginTop: 4 }}>
+                  ✎ Edits saved to export/DBFilesClient
                 </div>
               </div>
 
               <div style={{ marginBottom: '16px' }}>
                 <h4 style={{ textAlign: 'left', fontSize: '14px', marginBottom: '8px', color: textColor }}>Icon Source:</h4>
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', color: textColor }}>
-                    <input
-                      type="radio"
-                      checked={config.settings.activeIconSource === 'base'}
-                      onChange={() => {
-                        const newConfig = { ...config };
-                        newConfig.settings.activeIconSource = 'base';
-                        setConfig(newConfig);
-                        saveConfig(newConfig);
-                      }}
-                      style={{ marginRight: '6px' }}
-                    />
-                    <span>Base WotLK Icons</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', color: textColor }}>
-                    <input
-                      type="radio"
-                      checked={config.settings.activeIconSource === 'custom'}
-                      onChange={() => {
-                        const newConfig = { ...config };
-                        newConfig.settings.activeIconSource = 'custom';
-                        setConfig(newConfig);
-                        saveConfig(newConfig);
-                      }}
-                      style={{ marginRight: '6px' }}
-                    />
-                    <span>Custom Icons</span>
-                  </label>
-                </div>
                 <div style={{ fontSize: '12px', opacity: 0.7, paddingLeft: '4px' }}>
-                  📁 {config.settings.activeIconSource === 'base'
-                    ? config.paths.base.icons
-                    : config.paths.custom.icons}
+                  📁 {config.paths.base.icons} (uploads)
+                </div>
+                <div style={{ fontSize: '12px', opacity: 0.7, paddingLeft: '4px', marginTop: 4 }}>
+                  ✎ Custom icons mirrored to export/Interface/Icons
                 </div>
               </div>
 
@@ -378,7 +258,7 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
 
               <h3 style={{ marginTop: 0, textAlign: 'left', color: textColor }}>📦 Export Files</h3>
               <p style={{ fontSize: '14px', opacity: 0.8, marginBottom: '16px' }}>
-                Export custom files to MPQ-ready format for distribution.
+                Export edited files to MPQ-ready format for distribution.
               </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
@@ -403,7 +283,7 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
                     {exporting === 'icons' ? 'Exporting...' : 'Export Icons'}
                   </button>
                   <div style={{ flex: 1, fontSize: '12px', opacity: 0.7 }}>
-                    To: export/Interface/Icons/
+                    To: /root/azerothcore-wotlk/modules/mod-sdbeditor/export/Interface/Icons/
                     {exportStatus?.icons.count && exportStatus.icons.count > 0 && (
                       <div style={{ marginTop: '4px', color: '#4caf50', fontWeight: 'bold' }}>
                         ✓ {exportStatus.icons.count} file{exportStatus.icons.count !== 1 ? 's' : ''}
@@ -433,7 +313,7 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
                     {exporting === 'dbc' ? 'Exporting...' : 'Export DBCs'}
                   </button>
                   <div style={{ flex: 1, fontSize: '12px', opacity: 0.7 }}>
-                    To: export/DBFilesClient/
+                    To: /root/azerothcore-wotlk/modules/mod-sdbeditor/export/DBFilesClient/
                     {exportStatus?.dbcs.count && exportStatus.dbcs.count > 0 && (
                       <div style={{ marginTop: '4px', color: '#4caf50', fontWeight: 'bold' }}>
                         ✓ {exportStatus.dbcs.count} file{exportStatus.dbcs.count !== 1 ? 's' : ''}
@@ -474,7 +354,7 @@ const SettingsPanel: React.FC<Props> = ({ textColor = '#000', contentBoxColor = 
                 opacity: 0.8,
               }}>
                 <strong>ℹ️ Note:</strong> Base files are read-only references. Custom files are for server integration.
-                Export converts your custom files to MPQ-ready format organized in the export/ directory.
+                Export organizes edited files in the export/ directory.
               </div>
             </div>
           )}

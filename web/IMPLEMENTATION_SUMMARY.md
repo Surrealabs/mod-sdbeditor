@@ -4,6 +4,8 @@
 
 The complete MPQ patch export system is now fully implemented for the SDBEditor WoW server management tool. This system allows game content creators to export custom DBC databases and icon files in a format ready for distribution as game patches.
 
+> Note: The custom-* folders described below are deprecated. The current flow uses public/dbc and public/icon as sources and writes edits to export/DBFilesClient and export/Interface/Icons.
+
 ## ✅ What Was Accomplished
 
 ### 1. Backend Export Infrastructure (server.js)

@@ -12,8 +12,8 @@ Three new endpoints added to handle asset exports:
 
 | Endpoint | Method | Purpose | Input | Output |
 |----------|--------|---------|-------|--------|
-| `/api/export-icons` | POST | Copy custom icons to MPQ-ready export folder | - | `{ success, message, exported[], exportPath }` |
-| `/api/export-dbc` | POST | Copy custom DBCs to MPQ-ready export folder | - | `{ success, message, exported[], exportPath }` |
+| `/api/export-icons` | POST | Copy custom-* icons to MPQ-ready export folder | - | `{ success, message, exported[], exportPath }` |
+| `/api/export-dbc` | POST | List/export edited DBCs from export folder | - | `{ success, message, exported[], exportPath }` |
 | `/api/export-status` | GET | Get current contents of export folders | - | `{ icons: { count, files }, dbcs: { count, files } }` |
 
 **Location**: `/root/azerothcore-wotlk/modules/mod-sdbeditor/web/server.js`
@@ -52,8 +52,8 @@ Three new endpoints added to handle asset exports:
 Created and verified:
 ```
 public/
-├── custom-icons/              # Filled with test-icon.png
-├── custom-dbc/                # Filled with test.dbc
+├── icon/                      # Base icons + uploads (custom-*)
+├── dbc/                       # Base DBCs synced from server
 ├── export/
 │   ├── Interface/Icons/       # Ready for exported icons
 │   └── DBFilesClient/         # Ready for exported DBCs
@@ -69,18 +69,18 @@ public/
 ## Workflow
 
 ### Exporting Icons
-1. User uploads PNG/JPG to spell icon editor → `custom-icons/`
+1. User uploads BLP to spell icon editor → `Icons/` with `custom-` prefix
 2. Click Settings (⚙️)
 3. Click orange "Export Icons" button
-4. Files copied to `export/Interface/Icons/`
-5. Files automatically renamed to `.blp` extension
+4. Files copied to `../export/Interface/Icons/`
+5. Files remain as `custom-*.blp`
 6. Green status indicator shows exported count
 
 ### Exporting DBCs
-1. User uploads DBC to editor → `custom-dbc/`
+1. Sync server DBCs into `dbc/`
 2. Click Settings (⚙️)
 3. Click orange "Export DBCs" button
-4. Files copied to `export/DBFilesClient/`
+4. Files already saved to `../export/DBFilesClient/`
 5. Filenames preserved (e.g., Spell.dbc → Spell.dbc)
 6. Green status indicator shows exported count
 
@@ -91,9 +91,9 @@ public/
 {
   "success": true,
   "message": "Exported 1 icons",
-  "exported": ["test-icon.png"],
-  "exportPath": "/export/Interface/Icons",
-  "note": "Files are named with .blp extension."
+  "exported": ["custom-foo.blp"],
+  "exportPath": "/root/azerothcore-wotlk/modules/mod-sdbeditor/export/Interface/Icons",
+  "note": "Only custom-* icons are exported."
 }
 ```
 
@@ -111,8 +111,8 @@ public/
     "files": ["test.dbc"]
   },
   "exportPaths": {
-    "icons": "/export/Interface/Icons",
-    "dbcs": "/export/DBFilesClient"
+    "icons": "/root/azerothcore-wotlk/modules/mod-sdbeditor/export/Interface/Icons",
+    "dbcs": "/root/azerothcore-wotlk/modules/mod-sdbeditor/export/DBFilesClient"
   }
 }
 ```
@@ -133,8 +133,8 @@ public/
 1. Backend server running: `npm run server` (port 3001)
 2. Frontend dev server running: `npm run dev` (port 5173)
 3. Test files exist:
-   - `public/custom-icons/test-icon.png`
-   - `public/custom-dbc/test.dbc`
+  - `public/Icons/custom-test.blp`
+  - `../export/DBFilesClient/test.dbc`
 
 ### Manual Test Steps
 1. Open SDBEditor interface
@@ -143,17 +143,17 @@ public/
 4. Click "Export Icons" button
 5. Verify alert shows "✓ Exported 1 icons"
 6. Check green status box shows "Interface/Icons: 1 file(s)"
-7. Verify file in `public/export/Interface/Icons/test-icon.blp`
+7. Verify file in `../export/Interface/Icons/custom-test.blp`
 8. Click "Export DBCs" button
 9. Verify alert shows "✓ Exported 1 DBC files"
 10. Check green status box shows "DBFilesClient: 1 file(s)"
-11. Verify file in `public/export/DBFilesClient/test.dbc`
+11. Verify file in `../export/DBFilesClient/test.dbc`
 
 ### File Verification
 ```bash
 # Check exported files
-ls -la public/export/Interface/Icons/
-ls -la public/export/DBFilesClient/
+ls -la ../export/Interface/Icons/
+ls -la ../export/DBFilesClient/
 ```
 
 ## Integration Points

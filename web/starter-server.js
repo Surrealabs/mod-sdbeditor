@@ -909,6 +909,198 @@ app.post('/api/starter/account/delete', requireAuth, async (req, res) => {
 });
 
 
+function getUserIdFromToken(req) {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  if (!token) return null;
+  const entry = tokenStore.get(token);
+  return entry ? entry.userId : null;
+}
+
+// ── Get characters for the logged-in user ──
+app.get('/api/starter/characters', requireAuth, async (req, res) => {
+  const accountId = getUserIdFromToken(req);
+  if (!accountId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const config = readConfig();
+  if (!config) return res.status(400).json({ error: 'Not configured' });
+
+  let connection;
+  try {
+    connection = await mysql.createConnection({ ...config.db, database: 'acore_characters' });
+    const [rows] = await connection.execute(
+      'SELECT guid, name, level, class, online FROM characters WHERE account = ? ORDER BY level DESC',
+      [accountId]
+    );
+    res.json({ characters: rows });
+  } catch (error) {
+    console.error('Characters fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch characters' });
+  } finally {
+    if (connection) await connection.end();
+  }
+});
+
+// ── Apply talent build to a character (offline only) ──
+// Decodes a Wowhead-style talent string and writes spells to character_talent
+app.post('/api/starter/apply-talents', requireAuth, async (req, res) => {
+  const accountId = getUserIdFromToken(req);
+  if (!accountId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { charGuid, className, talentString } = req.body || {};
+  if (!charGuid || !className || !talentString) {
+    return res.status(400).json({ error: 'charGuid, className, and talentString required' });
+  }
+
+  const config = readConfig();
+  if (!config) return res.status(400).json({ error: 'Not configured' });
+
+  let connection;
+  try {
+    connection = await mysql.createConnection({ ...config.db, database: 'acore_characters' });
+
+    // Verify character belongs to this account and is offline
+    const [charRows] = await connection.execute(
+      'SELECT guid, name, class, online, level FROM characters WHERE guid = ? AND account = ? LIMIT 1',
+      [charGuid, accountId]
+    );
+    if (!charRows.length) {
+      return res.status(403).json({ error: 'Character not found or not yours' });
+    }
+    const char = charRows[0];
+    if (char.online === 1) {
+      return res.status(400).json({ error: 'Character must be offline to apply talents' });
+    }
+
+    // Parse Talent.dbc to get talent data
+    const fs = await import('fs');
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.default.dirname(__filename);
+
+    // Read config for DBC path
+    const serverConfig = JSON.parse(fs.default.readFileSync(path.default.join(__dirname, 'config.json'), 'utf8').replace(/^\uFEFF/, ''));
+    const baseDbcDir = path.default.join(__dirname, 'public', serverConfig?.paths?.base?.dbc || 'dbc');
+    const exportDbcPath = path.default.join(__dirname, 'export', 'DBFilesClient', 'Talent.dbc');
+    const talentDbcPath = fs.default.existsSync(exportDbcPath)
+      ? exportDbcPath
+      : path.default.join(baseDbcDir, 'Talent.dbc');
+
+    if (!fs.default.existsSync(talentDbcPath)) {
+      return res.status(500).json({ error: 'Talent.dbc not found on server' });
+    }
+
+    // Parse Talent.dbc
+    const buffer = fs.default.readFileSync(talentDbcPath);
+    const magic = buffer.toString('utf-8', 0, 4);
+    if (magic !== 'WDBC') return res.status(500).json({ error: 'Invalid Talent.dbc' });
+
+    const recordCount = buffer.readUInt32LE(4);
+    const recordSize = buffer.readUInt32LE(12);
+    const headerSize = 20;
+
+    // Class to tab mapping (same as server.js)
+    const classToTabs = {
+      warrior: [161, 164, 163], paladin: [381, 382, 383], hunter: [361, 362, 363],
+      rogue: [181, 182, 183], priest: [201, 202, 203], 'death-knight': [398, 399, 400],
+      shaman: [261, 262, 263], mage: [41, 61, 81], warlock: [301, 302, 303],
+      druid: [281, 282, 283],
+    };
+
+    const tabIds = classToTabs[className.toLowerCase()];
+    if (!tabIds) return res.status(400).json({ error: 'Unknown class' });
+
+    // Parse all talents for this class, grouped by tree
+    const treeMap = {}; // tabId -> sorted talents[]
+    for (let i = 0; i < recordCount; i++) {
+      const offset = headerSize + (i * recordSize);
+      const id = buffer.readUInt32LE(offset);
+      const tabId = buffer.readUInt32LE(offset + 4);
+      const row = buffer.readUInt32LE(offset + 8);
+      const col = buffer.readUInt32LE(offset + 12);
+
+      if (!tabIds.includes(tabId)) continue;
+
+      const spellRanks = [];
+      for (let r = 0; r < 9; r++) {
+        spellRanks.push(buffer.readUInt32LE(offset + 16 + r * 4));
+      }
+
+      if (!treeMap[tabId]) treeMap[tabId] = [];
+      treeMap[tabId].push({ id, tabId, row, col, spellRanks });
+    }
+
+    // Sort each tree by row then column
+    for (const tabId of tabIds) {
+      if (treeMap[tabId]) {
+        treeMap[tabId].sort((a, b) => a.row - b.row || a.col - b.col);
+      }
+    }
+
+    // Decode talent string
+    const trees = talentString.split('-');
+    const spellsToWrite = []; // { spell, specMask }
+
+    tabIds.forEach((tabId, treeIdx) => {
+      const treeDigits = trees[treeIdx] || '';
+      const talents = treeMap[tabId] || [];
+
+      talents.forEach((talent, idx) => {
+        const points = parseInt(treeDigits[idx] || '0', 10);
+        if (points > 0) {
+          // Get the spell for this rank (rank is 0-indexed: points-1)
+          const spellId = talent.spellRanks[points - 1];
+          if (spellId && spellId > 0) {
+            spellsToWrite.push({ spell: spellId, specMask: 1 }); // specMask=1 for primary spec
+          }
+        }
+      });
+    });
+
+    // Calculate total talent points available (level-based: level-9, min 0, max 71)
+    const maxPoints = Math.min(Math.max(char.level - 9, 0), 71);
+    const usedPoints = trees.reduce((sum, t) => {
+      let treeSum = 0;
+      for (const ch of t) treeSum += parseInt(ch || '0', 10);
+      return sum + treeSum;
+    }, 0);
+
+    if (usedPoints > maxPoints) {
+      return res.status(400).json({
+        error: `Build uses ${usedPoints} points but ${char.name} (level ${char.level}) only has ${maxPoints} available`
+      });
+    }
+
+    // Delete old talents for this character (primary spec only)
+    await connection.execute(
+      'DELETE FROM character_talent WHERE guid = ? AND specMask & 1',
+      [charGuid]
+    );
+
+    // Insert new talents
+    for (const { spell, specMask } of spellsToWrite) {
+      await connection.execute(
+        'INSERT INTO character_talent (guid, spell, specMask) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE specMask = VALUES(specMask)',
+        [charGuid, spell, specMask]
+      );
+    }
+
+    // Reset talent points in characters table
+    // talentGroupsCount is the number of spec groups, at_login_flags bit 32 = AT_LOGIN_RESET_TALENTS
+    // We don't set reset flag — we wrote the talents directly
+
+    console.log(`✓ Applied ${spellsToWrite.length} talents to ${char.name} (guid ${charGuid}) from build: ${talentString}`);
+    res.json({ success: true, learned: spellsToWrite.length, character: char.name });
+  } catch (error) {
+    console.error('Apply talents error:', error);
+    res.status(500).json({ error: 'Failed to apply talents' });
+  } finally {
+    if (connection) await connection.end();
+  }
+});
+
+
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('Starter server error:', err);

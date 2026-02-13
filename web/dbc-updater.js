@@ -1,6 +1,27 @@
 import fs from 'fs';
 import path from 'path';
 
+function normalizeIconName(input) {
+  if (!input) return '';
+  let name = String(input).replace(/\\/g, '/');
+  if (name.includes('/')) name = name.substring(name.lastIndexOf('/') + 1);
+  name = name.toLowerCase();
+  name = name.replace(/\.blp$/i, '');
+  return name.trim();
+}
+
+function buildDbcIconPath(baseName) {
+  return `Interface\\Icons\\${baseName}`;
+}
+
+function readDbcString(buffer, stringBlockOffset, offset) {
+  if (!offset) return '';
+  const start = stringBlockOffset + offset;
+  let end = start;
+  while (end < buffer.length && buffer[end] !== 0) end++;
+  return buffer.slice(start, end).toString('utf8');
+}
+
 /**
  * Update SpellIcon.dbc with new icon entries
  * Assigns next available ID and updates file path mappings
@@ -12,8 +33,14 @@ export function addIconToSpellIconDbc(dbcPath, iconFilename) {
       return null;
     }
 
+    const normalizedName = normalizeIconName(iconFilename);
+    if (!normalizedName) {
+      console.warn('Invalid icon filename');
+      return null;
+    }
+
     const buffer = fs.readFileSync(dbcPath);
-    const view = new DataView(buffer);
+    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     let offset = 0;
 
     // Read header
@@ -30,9 +57,9 @@ export function addIconToSpellIconDbc(dbcPath, iconFilename) {
       return null;
     }
 
-    const fieldCount = view.getUint32(offset, true);
-    offset += 4;
     const recordCount = view.getUint32(offset, true);
+    offset += 4;
+    const fieldCount = view.getUint32(offset, true);
     offset += 4;
     const fieldSize = view.getUint32(offset, true);
     offset += 4;
@@ -43,6 +70,7 @@ export function addIconToSpellIconDbc(dbcPath, iconFilename) {
     const recordsStart = offset;
     const stringBlockStart = recordsStart + recordCount * fieldSize;
     let maxId = -1;
+    const existing = new Map();
 
     for (let i = 0; i < recordCount; i++) {
       const recordOffset = recordsStart + i * fieldSize;
@@ -50,18 +78,32 @@ export function addIconToSpellIconDbc(dbcPath, iconFilename) {
       if (id > maxId) {
         maxId = id;
       }
+
+      const nameOffset = view.getUint32(recordOffset + 4, true);
+      const rawName = readDbcString(buffer, stringBlockStart, nameOffset);
+      const key = normalizeIconName(rawName);
+      if (key) existing.set(key, id);
+    }
+
+    if (existing.has(normalizedName)) {
+      return {
+        success: true,
+        id: existing.get(normalizedName),
+        filename: normalizedName,
+        dbcPath,
+        skipped: true,
+      };
     }
 
     const newId = maxId + 1;
 
     // Read old string block
     const stringBlockOld = buffer.slice(stringBlockStart, stringBlockStart + stringBlockSizeOld);
-    const stringBlockText = new TextDecoder().decode(stringBlockOld);
 
-    // Build new string with icon path
-    const newStringBlockText = stringBlockText + iconFilename + '\0';
-    const newStringBlockSize = new TextEncoder().encode(newStringBlockText).length;
-    const pathOffset = stringBlockSizeOld - 1; // Offset in new block where icon path starts
+    // Build new string block by appending after the existing null terminator
+    const pathOffset = stringBlockOld.length;
+    const newStringBytes = Buffer.from(`${buildDbcIconPath(normalizedName)}\0`, 'utf8');
+    const newStringBlockSize = stringBlockOld.length + newStringBytes.length;
 
     // Create new DBC buffer
     const newRecordCount = recordCount + 1;
@@ -79,9 +121,9 @@ export function addIconToSpellIconDbc(dbcPath, iconFilename) {
     newBuffer[writeOffset++] = 68; // D
     newBuffer[writeOffset++] = 66; // B
     newBuffer[writeOffset++] = 67; // C
-    newView.setUint32(writeOffset, fieldCount, true);
-    writeOffset += 4;
     newView.setUint32(writeOffset, newRecordCount, true);
+    writeOffset += 4;
+    newView.setUint32(writeOffset, fieldCount, true);
     writeOffset += 4;
     newView.setUint32(writeOffset, newFieldSize, true);
     writeOffset += 4;
@@ -101,17 +143,18 @@ export function addIconToSpellIconDbc(dbcPath, iconFilename) {
     newRecordView.setUint32(4, pathOffset, true); // field_1 = string offset
 
     // Copy string block
-    const newStringBlock = new TextEncoder().encode(newStringBlockText);
-    newBuffer.set(newStringBlock, recordsDestStart + newRecordsSize);
+    const stringBlockDest = recordsDestStart + newRecordsSize;
+    newBuffer.set(stringBlockOld, stringBlockDest);
+    newBuffer.set(newStringBytes, stringBlockDest + stringBlockOld.length);
 
     // Write updated DBC
     fs.writeFileSync(dbcPath, newBuffer);
-    console.log(`✓ Added icon to DBC: "${iconFilename}" with ID ${newId}`);
+    console.log(`✓ Added icon to DBC: "${normalizedName}" with ID ${newId}`);
 
     return {
       success: true,
       id: newId,
-      filename: iconFilename,
+      filename: normalizedName,
       dbcPath
     };
   } catch (err) {
@@ -132,6 +175,149 @@ export function addIconsToDbc(dbcPath, iconFilenames) {
     }
   }
   return results;
+}
+
+/**
+ * Sync SpellIcon.dbc to include all missing icon names from a folder.
+ * Writes output to the provided destination path (does not modify source).
+ */
+export function syncSpellIconDbcFromIcons(sourceDbcPath, iconDir, outputDbcPath, iconList = null) {
+  try {
+    if (!fs.existsSync(sourceDbcPath)) {
+      return { success: false, error: `Source DBC not found: ${sourceDbcPath}` };
+    }
+    if (!fs.existsSync(iconDir)) {
+      return { success: false, error: `Icon folder not found: ${iconDir}` };
+    }
+
+    const buffer = fs.readFileSync(sourceDbcPath);
+    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    let offset = 0;
+
+    const signature = String.fromCharCode(
+      view.getUint8(offset),
+      view.getUint8(offset + 1),
+      view.getUint8(offset + 2),
+      view.getUint8(offset + 3)
+    );
+    offset += 4;
+
+    if (signature !== 'WDBC') {
+      return { success: false, error: 'Invalid DBC signature' };
+    }
+
+    const recordCount = view.getUint32(offset, true);
+    offset += 4;
+    const fieldCount = view.getUint32(offset, true);
+    offset += 4;
+    const fieldSize = view.getUint32(offset, true);
+    offset += 4;
+    const stringBlockSizeOld = view.getUint32(offset, true);
+    offset += 4;
+
+    const recordsStart = offset;
+    const stringBlockStart = recordsStart + recordCount * fieldSize;
+    const stringBlockOld = buffer.slice(stringBlockStart, stringBlockStart + stringBlockSizeOld);
+
+    let maxId = -1;
+    const existing = new Set();
+    for (let i = 0; i < recordCount; i++) {
+      const recordOffset = recordsStart + i * fieldSize;
+      const id = view.getUint32(recordOffset, true);
+      if (id > maxId) maxId = id;
+      const nameOffset = view.getUint32(recordOffset + 4, true);
+      const rawName = readDbcString(buffer, stringBlockStart, nameOffset);
+      const key = normalizeIconName(rawName);
+      if (key) existing.add(key);
+    }
+
+    const iconFiles = Array.isArray(iconList)
+      ? iconList
+      : fs.readdirSync(iconDir).filter(f => f.toLowerCase().endsWith('.blp'));
+    const missing = [];
+    for (const file of iconFiles) {
+      const key = normalizeIconName(file);
+      if (!key || existing.has(key)) continue;
+      existing.add(key);
+      missing.push(key);
+    }
+
+    if (missing.length === 0) {
+      if (outputDbcPath && outputDbcPath !== sourceDbcPath) {
+        fs.mkdirSync(path.dirname(outputDbcPath), { recursive: true });
+        fs.copyFileSync(sourceDbcPath, outputDbcPath);
+      }
+      return { success: true, added: 0, total: recordCount, output: outputDbcPath || sourceDbcPath };
+    }
+
+    missing.sort();
+
+    const baseOffset = stringBlockOld.length;
+
+    const appendedBuffers = [];
+    const offsets = [];
+    let runningOffset = baseOffset;
+    for (const name of missing) {
+      offsets.push(runningOffset);
+      const buf = Buffer.from(buildDbcIconPath(name) + '\0', 'utf8');
+      appendedBuffers.push(buf);
+      runningOffset += buf.length;
+    }
+
+    const newStringBlockSize = runningOffset;
+    const newRecordCount = recordCount + missing.length;
+    const newHeaderSize = 20;
+    const newRecordsSize = newRecordCount * fieldSize;
+    const newTotalSize = newHeaderSize + newRecordsSize + newStringBlockSize;
+
+    const newBuffer = Buffer.alloc(newTotalSize);
+    const newView = new DataView(newBuffer.buffer);
+
+    let writeOffset = 0;
+    newBuffer[writeOffset++] = 87;
+    newBuffer[writeOffset++] = 68;
+    newBuffer[writeOffset++] = 66;
+    newBuffer[writeOffset++] = 67;
+    newView.setUint32(writeOffset, newRecordCount, true);
+    writeOffset += 4;
+    newView.setUint32(writeOffset, fieldCount, true);
+    writeOffset += 4;
+    newView.setUint32(writeOffset, fieldSize, true);
+    writeOffset += 4;
+    newView.setUint32(writeOffset, newStringBlockSize, true);
+    writeOffset += 4;
+
+    const recordsDestStart = newHeaderSize;
+    newBuffer.set(buffer.slice(recordsStart, recordsStart + recordCount * fieldSize), recordsDestStart);
+
+    let nextId = maxId + 1;
+    for (let i = 0; i < missing.length; i++) {
+      const newRecordStart = recordsDestStart + (recordCount + i) * fieldSize;
+      const recView = new DataView(newBuffer.buffer, newRecordStart, fieldSize);
+      recView.setUint32(0, nextId++, true);
+      recView.setUint32(4, offsets[i], true);
+    }
+
+    const stringBlockDest = recordsDestStart + newRecordsSize;
+    newBuffer.set(stringBlockOld, stringBlockDest);
+    let stringWrite = stringBlockDest + baseOffset;
+    for (const buf of appendedBuffers) {
+      newBuffer.set(buf, stringWrite);
+      stringWrite += buf.length;
+    }
+
+    fs.mkdirSync(path.dirname(outputDbcPath), { recursive: true });
+    fs.writeFileSync(outputDbcPath, newBuffer);
+
+    return {
+      success: true,
+      added: missing.length,
+      total: newRecordCount,
+      output: outputDbcPath,
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 }
 
 /**

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import TalentIcon from './TalentIcon';
 
 type SpriteInfo = {
@@ -24,9 +24,11 @@ type Talent = {
 type Props = {
   textColor: string;
   contentBoxColor: string;
+  token?: string | null;
+  gmLevel?: number;
 };
 
-const TalentBuilder: React.FC<Props> = ({ textColor, contentBoxColor }) => {
+const TalentBuilder: React.FC<Props> = ({ textColor, contentBoxColor, token, gmLevel = 0 }) => {
   const [selectedClass, setSelectedClass] = useState<string>('warrior');
   const [specs, setSpecs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -35,6 +37,16 @@ const TalentBuilder: React.FC<Props> = ({ textColor, contentBoxColor }) => {
   const [spriteIconsPerRow, setSpriteIconsPerRow] = useState(16);
   const [allocatedPoints, setAllocatedPoints] = useState<{ [talentId: number]: number }>({});
   const MAX_TALENT_POINTS = 51;
+
+  // Import/export state
+  const [talentString, setTalentString] = useState('');
+  const [showImportExport, setShowImportExport] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState('');
+  const [applyStatus, setApplyStatus] = useState<string | null>(null);
+  const [applyBusy, setApplyBusy] = useState(false);
+  const [characters, setCharacters] = useState<{ guid: number; name: string; level: number; class: number; online: number }[]>([]);
+  const [selectedCharGuid, setSelectedCharGuid] = useState<number | null>(null);
+  const [showApplyPanel, setShowApplyPanel] = useState(false);
 
   // Fetch talent tab names from server on mount
   useEffect(() => {
@@ -131,6 +143,112 @@ const TalentBuilder: React.FC<Props> = ({ textColor, contentBoxColor }) => {
     setAllocatedPoints(prev => ({ ...prev, [talent.id]: prev[talent.id] - 1 }));
   };
   const resetPoints = () => setAllocatedPoints({});
+
+  // ── Wowhead-style talent string encode/decode ──
+  // Format: digits per talent sorted row/col within each tree, trees separated by "-"
+  // Trailing zeros stripped per tree. Example: "302023013-305053000520310053120501-0"
+
+  const encodeTalentString = useCallback((): string => {
+    if (specs.length === 0) return '';
+    const trees: string[] = specs.map((spec: any) => {
+      const sorted = [...(spec.talents || [])].sort((a: Talent, b: Talent) => a.row - b.row || a.column - b.column);
+      const digits = sorted.map((t: Talent) => String(allocatedPoints[t.id] || 0));
+      // Trim trailing zeros
+      let str = digits.join('');
+      str = str.replace(/0+$/, '');
+      return str || '0';
+    });
+    return trees.join('-');
+  }, [specs, allocatedPoints]);
+
+  const decodeTalentString = useCallback((str: string) => {
+    if (!str || specs.length === 0) return;
+    const trees = str.split('-');
+    const newPoints: { [talentId: number]: number } = {};
+
+    specs.forEach((spec: any, treeIdx: number) => {
+      const treeStr = trees[treeIdx] || '';
+      const sorted = [...(spec.talents || [])].sort((a: Talent, b: Talent) => a.row - b.row || a.column - b.column);
+      sorted.forEach((t: Talent, i: number) => {
+        const pts = parseInt(treeStr[i] || '0', 10);
+        if (pts > 0 && pts <= (t.maxRank || 5)) {
+          newPoints[t.id] = pts;
+        }
+      });
+    });
+
+    setAllocatedPoints(newPoints);
+  }, [specs]);
+
+  // Update talent string when points change
+  useEffect(() => {
+    if (specs.length > 0) {
+      setTalentString(encodeTalentString());
+    }
+  }, [allocatedPoints, specs, encodeTalentString]);
+
+  // Fetch character list for apply feature
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/starter/characters', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => setCharacters(data.characters || []))
+      .catch(() => setCharacters([]));
+  }, [token]);
+
+  const copyTalentString = () => {
+    const str = encodeTalentString();
+    navigator.clipboard.writeText(str).then(() => {
+      setCopyFeedback('Copied!');
+      setTimeout(() => setCopyFeedback(''), 2000);
+    }).catch(() => {
+      setCopyFeedback('Copy failed');
+      setTimeout(() => setCopyFeedback(''), 2000);
+    });
+  };
+
+  const importTalentString = () => {
+    const input = prompt('Paste talent string (e.g. 302023013-305053000-0):');
+    if (input && input.includes('-')) {
+      decodeTalentString(input.trim());
+    }
+  };
+
+  const applyToCharacter = async (charGuid: number, charName: string) => {
+    if (!token || !talentString) return;
+    setApplyBusy(true);
+    setApplyStatus(null);
+    try {
+      const res = await fetch('/api/starter/apply-talents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          charGuid,
+          className: selectedClass,
+          talentString: encodeTalentString(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setApplyStatus(`Applied to ${charName}: ${data.learned} talents written`);
+      } else {
+        setApplyStatus(`Error: ${data.error}`);
+      }
+    } catch (e) {
+      setApplyStatus(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setApplyBusy(false);
+    }
+  };
+
+  // Map class name to WoW class ID
+  const classNameToId: { [key: string]: number } = {
+    warrior: 1, paladin: 2, hunter: 3, rogue: 4, priest: 5,
+    'death-knight': 6, shaman: 7, mage: 8, warlock: 9, druid: 11,
+  };
+
 
   const classes = [
     'warrior',
@@ -229,12 +347,12 @@ const TalentBuilder: React.FC<Props> = ({ textColor, contentBoxColor }) => {
 
   return (
     <div style={{ padding: 12, color: textColor }}>
-      <h2 style={{ textAlign: 'left', color: textColor }}>Talent Builder</h2>
+      <h2 style={{ textAlign: 'left', color: textColor }}>Spec Builder</h2>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <p style={{ margin: 0, opacity: 0.7 }}>
           {loading ? '⏳ Loading talent data...' : 'Left-click to add a point, right-click to remove.'}
         </p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 14, fontWeight: 'bold', color: totalSpent >= MAX_TALENT_POINTS ? '#f44336' : '#4FC3F7' }}>
             {totalSpent} / {MAX_TALENT_POINTS}
           </span>
@@ -253,8 +371,122 @@ const TalentBuilder: React.FC<Props> = ({ textColor, contentBoxColor }) => {
           >
             Reset
           </button>
+          <button
+            onClick={copyTalentString}
+            disabled={totalSpent === 0}
+            style={{
+              padding: '4px 12px',
+              background: totalSpent > 0 ? '#007bff' : '#555',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 4,
+              cursor: totalSpent > 0 ? 'pointer' : 'not-allowed',
+              fontSize: 12,
+            }}
+          >
+            {copyFeedback || 'Export'}
+          </button>
+          <button
+            onClick={importTalentString}
+            style={{
+              padding: '4px 12px',
+              background: '#28a745',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
+            Import
+          </button>
+          {token && (
+            <button
+              onClick={() => setShowApplyPanel(!showApplyPanel)}
+              disabled={totalSpent === 0}
+              style={{
+                padding: '4px 12px',
+                background: totalSpent > 0 ? '#ff9800' : '#555',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor: totalSpent > 0 ? 'pointer' : 'not-allowed',
+                fontSize: 12,
+              }}
+            >
+              Apply ▾
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Talent string display */}
+      {totalSpent > 0 && (
+        <div style={{ marginBottom: 12, padding: '6px 12px', background: 'rgba(0,0,0,0.2)', borderRadius: 6, fontFamily: 'monospace', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ opacity: 0.5, fontSize: 11 }}>Build:</span>
+          <span style={{ flex: 1, wordBreak: 'break-all' }}>{talentString}</span>
+        </div>
+      )}
+
+      {/* Apply to character panel */}
+      {showApplyPanel && token && totalSpent > 0 && (
+        <div style={{
+          marginBottom: 12,
+          padding: 12,
+          background: contentBoxColor,
+          border: '1px solid #555',
+          borderRadius: 8,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <strong style={{ fontSize: 13 }}>Apply Build to Character</strong>
+            <button onClick={() => setShowApplyPanel(false)} style={{ background: 'none', border: 'none', color: textColor, cursor: 'pointer', fontSize: 16 }}>×</button>
+          </div>
+          <p style={{ fontSize: 12, opacity: 0.6, margin: '0 0 8px 0' }}>
+            Resets the character's talents and applies this build. Character must be offline.
+          </p>
+          {characters.length === 0 ? (
+            <p style={{ fontSize: 12, color: '#999' }}>No characters found on your account.</p>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {characters
+                .filter(c => c.class === classNameToId[selectedClass])
+                .map(c => (
+                  <button
+                    key={c.guid}
+                    disabled={applyBusy || c.online === 1}
+                    onClick={() => {
+                      if (confirm(`Apply this ${selectedClass} build to ${c.name}? This will RESET their current talents.`)) {
+                        applyToCharacter(c.guid, c.name);
+                      }
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      background: c.online === 1 ? '#333' : '#ff9800',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: c.online === 1 ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      opacity: c.online === 1 ? 0.5 : 1,
+                    }}
+                    title={c.online === 1 ? 'Character is online — log out first' : `Apply to ${c.name}`}
+                  >
+                    {c.name} (Lv{c.level}){c.online === 1 ? ' 🟢' : ''}
+                  </button>
+                ))
+              }
+              {characters.filter(c => c.class === classNameToId[selectedClass]).length === 0 && (
+                <p style={{ fontSize: 12, color: '#999' }}>No {selectedClass} characters on your account.</p>
+              )}
+            </div>
+          )}
+          {applyStatus && (
+            <p style={{ fontSize: 12, marginTop: 8, color: applyStatus.startsWith('Error') || applyStatus.startsWith('Failed') ? '#f44336' : '#4CAF50' }}>
+              {applyStatus}
+            </p>
+          )}
+        </div>
+      )}
 
       <div style={{ marginBottom: 16 }}>
         <label style={{ fontWeight: 'bold' }}>Select Class:</label>
@@ -361,12 +593,17 @@ const TalentBuilder: React.FC<Props> = ({ textColor, contentBoxColor }) => {
                 </div>
                 {/* Talent Grid */}
                 <div style={{ padding: 12 }}>
+                  {(() => {
+                    // Identify mastery talent (first per spec by row/col) — hidden, handled by spec selection
+                    const sorted = [...(spec.talents || [])].sort((a: Talent, b: Talent) => a.row - b.row || a.column - b.column);
+                    const masteryId = sorted[0]?.id;
+                    return (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
                     {Array.from({ length: 44 }).map((_, idx) => {
                       const row = Math.floor(idx / 4);
                       const col = idx % 4;
                       const talent = spec.talents?.find(
-                        (t: Talent) => t.row === row && t.column === col
+                        (t: Talent) => t.row === row && t.column === col && t.id !== masteryId
                       );
                       const pts = talent ? (allocatedPoints[talent.id] || 0) : 0;
                       const maxR = talent?.maxRank || 1;
@@ -442,6 +679,8 @@ const TalentBuilder: React.FC<Props> = ({ textColor, contentBoxColor }) => {
                       );
                     })}
                   </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
